@@ -1,0 +1,27 @@
+# Persona Avatar — backend stack.
+#
+# MVP: one service (api). Sibling services (tts, rag, stt) will
+# be added as separate entries on this same compose file when
+# they become needed. Frontend runs OUTSIDE compose during dev
+# (Vite at :5173) and talks to backend via CORS-allowed WebSocket.
+
+services:
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: persona_api
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    volumes:
+      # mount source for live reload during dev. remove for prod.
+      - ./backend:/app
+    restart: unless-stopped
+    networks:
+      - persona_net
+
+networks:
+  persona_net:
+    driver: bridge

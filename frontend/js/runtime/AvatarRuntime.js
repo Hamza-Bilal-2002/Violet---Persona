@@ -22,6 +22,23 @@ from '../config/animations.js';
 import { runTestDialogue }
 from '../tests/testDialogue.js';
 
+import { BackendClient }
+from '../backend/BackendClient.js';
+
+import { mountChatInput }
+from '../ui/chatInput.js';
+
+// Backend wiring config. When the backend container is running
+// (docker compose up), the WebSocket at this URL drives dialogue.
+// If the connection fails, the offline test dialogue still runs
+// so the avatar isn't dead on screen.
+
+const BACKEND_WS_URL =
+  'ws://localhost:8000/chat/ws';
+
+const ENABLE_TEST_DIALOGUE =
+  false;
+
 export class AvatarRuntime {
 
   constructor({
@@ -226,9 +243,56 @@ export class AvatarRuntime {
 
     this.autoBlink();
 
-    runTestDialogue(
-  this.dialogueManager
-);
+    // ======================
+    // BACKEND + CHAT UI
+    // ======================
+
+    this.chatInput =
+      mountChatInput({
+
+        onSend: (text) => {
+
+          this.backendClient.send(
+            text
+          );
+
+        }
+
+      });
+
+    this.backendClient =
+      new BackendClient({
+
+        url:
+          BACKEND_WS_URL,
+
+        dialogueManager:
+          this.dialogueManager,
+
+        onStatusChange: (status) => {
+
+          this.chatInput.setStatus(
+            status
+          );
+
+        },
+
+      });
+
+    this.backendClient.connect();
+
+    // OFFLINE FALLBACK
+    // useful when developing without the backend
+    // running. flip ENABLE_TEST_DIALOGUE at the
+    // top of this file to re-enable.
+
+    if (ENABLE_TEST_DIALOGUE) {
+
+      runTestDialogue(
+        this.dialogueManager
+      );
+
+    }
 
     console.log(
       'VRM Runtime Ready'
