@@ -93,6 +93,9 @@ export class RuntimeController {
         scene:
           this.scene,
 
+        camera:
+          this.camera,
+
         loadingScreen:
           this.loadingScreen
 
@@ -143,7 +146,11 @@ export class RuntimeController {
 
       lipSyncManager:
         this.avatarRuntime
-          .lipSyncManager
+          .lipSyncManager,
+
+      lookAtManager:
+        this.avatarRuntime
+          .lookAtManager
 
     });
 

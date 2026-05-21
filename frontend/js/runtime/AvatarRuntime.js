@@ -16,6 +16,9 @@ from '../managers/dialogueManager.js';
 import { LipSyncManager }
 from '../managers/lipSyncManager.js';
 
+import { LookAtManager }
+from '../managers/lookAtManager.js';
+
 import { AVATAR_ANIMATIONS }
 from '../config/animations.js';
 
@@ -43,11 +46,19 @@ export class AvatarRuntime {
 
   constructor({
     scene,
+    camera,
     loadingScreen
   }) {
 
     this.scene =
       scene;
+
+    // camera is required for cursor->world raycasting in
+    // LookAtManager. accepting it via constructor keeps the
+    // dependency explicit.
+
+    this.camera =
+      camera;
 
     this.loadingScreen =
       loadingScreen;
@@ -68,6 +79,9 @@ export class AvatarRuntime {
       null;
 
     this.lipSyncManager =
+      null;
+
+    this.lookAtManager =
       null;
 
     this._blinkTimeout =
@@ -121,6 +135,24 @@ export class AvatarRuntime {
       new AnimationManager(
         this.currentVRM
       );
+
+    // head + eye tracking on cursor when idle.
+    // depends on animationManager being ready (it polls
+    // currentNonIdle to gate the tracking).
+
+    this.lookAtManager =
+      new LookAtManager({
+
+        vrm:
+          this.currentVRM,
+
+        camera:
+          this.camera,
+
+        animationManager:
+          this.animationManager,
+
+      });
 
     this.avatarStateManager =
       new AvatarStateManager({
@@ -236,6 +268,19 @@ export class AvatarRuntime {
       true;
 
     this.loadingScreen.complete();
+
+    // signal the Electron shell that we're loaded and the
+    // window can be revealed. no-op in browser dev mode.
+
+    if (
+      typeof window !== 'undefined' &&
+      window.personaShell &&
+      typeof window.personaShell.ready === 'function'
+    ) {
+
+      window.personaShell.ready();
+
+    }
 
     // ======================
     // AUTOBLINK

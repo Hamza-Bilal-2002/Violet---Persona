@@ -32,5 +32,16 @@ contextBridge.exposeInMainWorld(
 
     },
 
+    // Tell the main process the renderer is done loading and the
+    // window can now be shown. Called once by AvatarRuntime after
+    // the VRM + animations are ready. Prevents the user from ever
+    // seeing the loading screen.
+
+    ready: () => {
+
+      ipcRenderer.send('persona:ready');
+
+    },
+
   }
 );

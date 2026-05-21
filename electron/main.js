@@ -134,6 +134,13 @@ function createWindow() {
       resizable: true,
       hasShadow: false,
 
+      // Stay hidden until the renderer signals 'persona:ready'.
+      // This lets the avatar fully load (VRM + animations + first
+      // frame) before the window appears, so the user never sees
+      // the loading screen.
+
+      show: false,
+
       // Background-color is forced to fully transparent. Some Electron
       // builds default to opaque white during the first paint flash —
       // setting it explicitly avoids that.
@@ -277,6 +284,35 @@ ipcMain.on(
     if (mainWindow) {
       mainWindow.hide();
     }
+
+  }
+);
+
+// Renderer signals it has finished loading (VRM + animations + first
+// frame rendered). Show the window now so the user never sees the
+// loading screen.
+
+ipcMain.on(
+  'persona:ready',
+  () => {
+
+    if (!mainWindow) {
+      return;
+    }
+
+    if (mainWindow.isVisible()) {
+      return;
+    }
+
+    mainWindow.show();
+
+    // re-assert the highest always-on-top tier after show, since
+    // some Windows compositor states reset it on first paint.
+
+    mainWindow.setAlwaysOnTop(
+      true,
+      'screen-saver'
+    );
 
   }
 );

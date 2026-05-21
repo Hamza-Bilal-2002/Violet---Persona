@@ -12,6 +12,7 @@ export function startUpdateLoop({
   animationManager,
   vrm,
   lipSyncManager,
+  lookAtManager,
 
 }) {
 
@@ -39,6 +40,21 @@ export function startUpdateLoop({
     ) {
 
       animationManager.update(
+        delta
+      );
+
+    }
+
+    // ======================
+    // LOOK AT
+    // ======================
+
+    // run BEFORE vrm.update so the target's new position
+    // is in place when VRMLookAt evaluates head/eye angles.
+
+    if (lookAtManager) {
+
+      lookAtManager.update(
         delta
       );
 
