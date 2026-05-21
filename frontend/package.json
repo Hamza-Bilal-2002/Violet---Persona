@@ -1,0 +1,19 @@
+{
+  "name": "vrm-lab",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@pixiv/three-vrm": "^3.4.2",
+    "lil-gui": "^0.19.2",
+    "three": "^0.179.1",
+    "three-stdlib": "^2.36.0"
+  },
+  "devDependencies": {
+    "vite": "^7.1.3"
+  }
+}

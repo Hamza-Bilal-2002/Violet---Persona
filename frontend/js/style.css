@@ -1,0 +1,90 @@
+body {
+  margin: 0;
+  overflow: hidden;
+  background: #111;
+  font-family: Arial, sans-serif;
+}
+
+canvas {
+  display: block;
+}
+
+#loading-screen {
+  position: fixed;
+  inset: 0;
+
+  background:
+    radial-gradient(
+      circle at center,
+      #1a1a1a,
+      #050505
+    );
+
+  display: flex;
+  justify-content: center;
+  align-items: center;
+
+  z-index: 9999;
+
+  transition:
+    opacity 0.8s ease,
+    visibility 0.8s ease;
+}
+
+#loading-content {
+  width: 320px;
+  text-align: center;
+}
+
+#loading-logo {
+
+  font-size: 42px;
+  font-weight: bold;
+  letter-spacing: 10px;
+
+  color: white;
+
+  margin-bottom: 20px;
+
+  opacity: 0.9;
+}
+
+#loading-text {
+
+  color: #aaaaaa;
+
+  margin-bottom: 20px;
+
+  font-size: 14px;
+
+  letter-spacing: 2px;
+}
+
+#loading-bar-container {
+
+  width: 100%;
+  height: 4px;
+
+  background: #222;
+
+  border-radius: 999px;
+
+  overflow: hidden;
+}
+
+#loading-bar {
+
+  width: 0%;
+
+  height: 100%;
+
+  background: white;
+
+  transition: width 0.3s ease;
+}
+
+.hidden {
+
+  opacity: 0;
+  visibility: hidden;
+}
