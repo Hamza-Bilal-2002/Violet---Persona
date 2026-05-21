@@ -148,7 +148,10 @@ export class AvatarRuntime {
           await this.animationManager
             .loadAnimation(
               anim.name,
-              anim.path
+              anim.path,
+              {
+                cooldown: anim.cooldown
+              }
             );
 
           loadedCount++;

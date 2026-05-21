@@ -23,15 +23,34 @@ export class AnimationManager {
     this.currentAction =
       null;
 
+    // tracks which non-idle action is "live"
+    // (playing or looping). Used to start the
+    // cooldown when that action gets superseded
+    // by another play() before it ends naturally.
+
+    this.currentNonIdle =
+      null;
+
     // ======================
     // COOLDOWNS
     // ======================
 
+    // cooldown timestamps: when did each animation
+    // become re-playable. set on END or SUPERSEDE,
+    // not on play-start (Approach A).
+
     this.cooldowns =
       new Map();
 
-    this.cooldownDuration =
-      1200;
+    // per-animation cooldown duration overrides.
+    // populated by loadAnimation() from config.
+    // missing entry -> use defaultCooldown.
+
+    this.cooldownDurations =
+      new Map();
+
+    this.defaultCooldown =
+      5000;
 
     // ======================
     // AUTO RETURN TO IDLE
@@ -68,8 +87,25 @@ export class AnimationManager {
           `Animation finished: ${finishedName}`
         );
 
+        // start cooldown NOW that the clip
+        // actually ended (not when it began).
+
+        this._startCooldown(
+          finishedName
+        );
+
         this.currentAction =
           null;
+
+        if (
+          this.currentNonIdle ===
+          finishedName
+        ) {
+
+          this.currentNonIdle =
+            null;
+
+        }
 
         this.play(
           'idle',
@@ -85,17 +121,71 @@ export class AnimationManager {
   }
 
   // ======================
+  // COOLDOWN HELPER
+  // ======================
+
+  _startCooldown(name) {
+
+    if (!name) {
+
+      return;
+
+    }
+
+    const duration =
+
+      this.cooldownDurations
+        .get(name) ??
+      this.defaultCooldown;
+
+    // duration <= 0 means "never blocked"
+    // (talking is configured this way so
+    // it can re-trigger across dialogue turns).
+
+    if (duration <= 0) {
+
+      return;
+
+    }
+
+    this.cooldowns.set(
+
+      name,
+
+      Date.now() + duration
+
+    );
+
+  }
+
+  // ======================
   // LOAD ANIMATION
   // ======================
 
   async loadAnimation(
     name,
-    url
+    url,
+    options = {}
   ) {
 
     console.log(
       `Loading animation: ${name}`
     );
+
+    // store per-animation cooldown override
+    // if provided in config. 0 means "never
+    // blocked", positive number = ms.
+
+    if (
+      typeof options.cooldown === 'number'
+    ) {
+
+      this.cooldownDurations.set(
+        name,
+        options.cooldown
+      );
+
+    }
 
     const loader =
       new FBXLoader();
@@ -495,18 +585,23 @@ export class AnimationManager {
     );
 
     // ======================
-    // START COOLDOWN
+    // SUPERSEDE PREVIOUS
     // ======================
 
+    // if a non-idle animation is currently
+    // live and we're switching to something
+    // else, retire it: start its cooldown NOW
+    // (it would otherwise never start, since
+    // loop:true clips don't emit 'finished'
+    // and faded-out actions don't either).
+
     if (
-      name !== 'idle'
+      this.currentNonIdle &&
+      this.currentNonIdle !== name
     ) {
 
-      this.cooldowns.set(
-        name,
-
-        Date.now() +
-        this.cooldownDuration
+      this._startCooldown(
+        this.currentNonIdle
       );
 
     }
@@ -584,6 +679,14 @@ export class AnimationManager {
 
     this.currentAction =
       name;
+
+    // track the "live" non-idle animation so
+    // we know what to retire on the next play().
+
+    this.currentNonIdle =
+      name === 'idle'
+        ? null
+        : name;
 
     return true;
 

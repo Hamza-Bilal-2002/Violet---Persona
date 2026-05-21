@@ -1,3 +1,12 @@
+// Per-animation config.
+//
+// cooldown: ms blocked from replaying after the
+// clip ends OR is superseded by another animation.
+//   - 0   = never blocked (use for dialogue-driven
+//           animations that may re-trigger rapidly)
+//   - >0  = block for this many ms after end/supersede
+//   - omit = falls back to AnimationManager.defaultCooldown (5000)
+
 export const AVATAR_ANIMATIONS = [
 
   {
@@ -10,6 +19,9 @@ export const AVATAR_ANIMATIONS = [
 
     loop:
       true,
+
+    cooldown:
+      0,
 
   },
 
@@ -24,6 +36,9 @@ export const AVATAR_ANIMATIONS = [
     loop:
       false,
 
+    cooldown:
+      5000,
+
   },
 
   {
@@ -36,6 +51,9 @@ export const AVATAR_ANIMATIONS = [
 
     loop:
       false,
+
+    cooldown:
+      5000,
 
   },
 
@@ -50,6 +68,9 @@ export const AVATAR_ANIMATIONS = [
     loop:
       false,
 
+    cooldown:
+      0,
+
   },
 
   {
@@ -63,6 +84,9 @@ export const AVATAR_ANIMATIONS = [
     loop:
       false,
 
+    cooldown:
+      5000,
+
   },
 
   {
@@ -75,6 +99,9 @@ export const AVATAR_ANIMATIONS = [
 
     loop:
       false,
+
+    cooldown:
+      3000,
 
   },
 
