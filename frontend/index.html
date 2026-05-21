@@ -9,19 +9,36 @@
   <title>VRM Lab</title>
 
   <style>
-    body {
+    html, body {
       margin: 0;
+      padding: 0;
       overflow: hidden;
-      background: #111;
+      background: transparent !important;
     }
 
     canvas {
       display: block;
+      background: transparent !important;
+    }
+
+    /* Drag handle for the Electron frameless window. Top 28px strip is
+       click-and-drag; the full styling (including no-drag overrides for
+       interactive overlays) lives in js/style.css. Declared here so the
+       region exists from the very first paint. */
+    #drag-region {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 28px;
+      -webkit-app-region: drag;
+      z-index: 99999;
     }
   </style>
 </head>
 
 <body>
+  <div id="drag-region"></div>
   <script type="module" src="./js/app.js"></script>
 </body>
 </html>

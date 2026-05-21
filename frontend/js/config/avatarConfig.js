@@ -67,8 +67,12 @@ export const AVATAR_CONFIG = {
     powerPreference:
       'high-performance',
 
+    // Renderer clears with alpha 0 (see core/renderer.js), so this value
+    // is never actually painted. Kept here for documentation: intent is
+    // "transparent" — black is the conventional inert clear color.
+
     backgroundColor:
-      0x111111,
+      0x000000,
 
     maxPixelRatio:
       2,

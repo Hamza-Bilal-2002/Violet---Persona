@@ -1,0 +1,324 @@
+// Persona desktop shell — Electron main process.
+//
+// Phase 1 responsibilities:
+//   - Spawn a single frameless, transparent, always-on-top BrowserWindow
+//     anchored to the top-right of the primary display.
+//   - Wire a tray icon (left-click toggles, right-click menu shows Show/Hide/Quit).
+//   - Keep the app alive when the window is closed — Persona is a background
+//     process, not a regular foreground app. Only the tray "Quit" terminates.
+//   - Bridge a minimal IPC channel ("persona:hide") for the renderer.
+//
+// CommonJS module — the renderer remains ESM (Vite).
+
+const {
+  app,
+  BrowserWindow,
+  Tray,
+  Menu,
+  screen,
+  ipcMain,
+}
+  = require('electron');
+
+const path
+  = require('path');
+
+// ----------------------------------------------------------------------
+// Pre-ready switches.
+//
+// Electron's native-occlusion calculation on Windows can flip transparent
+// windows to a black fill when another window covers them. Disabling the
+// feature before app-ready keeps the transparent overlay clean.
+// ----------------------------------------------------------------------
+
+app.commandLine.appendSwitch(
+  'disable-features',
+  'CalculateNativeWinOcclusion'
+);
+
+// Default to dev mode for Phase 1 — production packaging is out of scope.
+
+const IS_DEV
+  = process.env.NODE_ENV === 'development'
+    || process.argv.includes('--dev')
+    || !app.isPackaged;
+
+const DEV_URL
+  = 'http://localhost:5173';
+
+const PROD_INDEX
+  = path.join(
+      __dirname,
+      '..',
+      'frontend',
+      'dist',
+      'index.html'
+    );
+
+const TRAY_ICON_PATH
+  = path.join(
+      __dirname,
+      'assets',
+      'tray-icon.png'
+    );
+
+const PRELOAD_PATH
+  = path.join(
+      __dirname,
+      'preload.js'
+    );
+
+// ----------------------------------------------------------------------
+// Module-scope handles kept alive for the app's lifetime.
+// Tray, in particular, must be referenced or it gets GC'd and vanishes.
+// ----------------------------------------------------------------------
+
+let mainWindow
+  = null;
+
+let tray
+  = null;
+
+// ----------------------------------------------------------------------
+// Window
+// ----------------------------------------------------------------------
+
+function computeTopRightOrigin(width, height) {
+
+  const display
+    = screen.getPrimaryDisplay();
+
+  const workArea
+    = display.workArea;
+
+  const margin
+    = 40;
+
+  const x
+    = workArea.x
+      + workArea.width
+      - width
+      - margin;
+
+  const y
+    = workArea.y
+      + margin;
+
+  return { x, y };
+
+}
+
+function createWindow() {
+
+  const width
+    = 420;
+
+  const height
+    = 640;
+
+  const { x, y }
+    = computeTopRightOrigin(width, height);
+
+  mainWindow
+    = new BrowserWindow({
+
+      width,
+      height,
+      x,
+      y,
+
+      frame: false,
+      transparent: true,
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      resizable: true,
+      hasShadow: false,
+
+      // Background-color is forced to fully transparent. Some Electron
+      // builds default to opaque white during the first paint flash —
+      // setting it explicitly avoids that.
+
+      backgroundColor: '#00000000',
+
+      webPreferences: {
+
+        preload: PRELOAD_PATH,
+        contextIsolation: true,
+        nodeIntegration: false,
+
+      },
+
+    });
+
+  // 'screen-saver' level sits above normal always-on-top windows, which is
+  // the behavior we want for a Jarvis-style overlay.
+
+  mainWindow.setAlwaysOnTop(
+    true,
+    'screen-saver'
+  );
+
+  if (IS_DEV) {
+
+    mainWindow.loadURL(DEV_URL);
+
+    mainWindow.webContents.openDevTools({
+      mode: 'detach',
+    });
+
+  } else {
+
+    mainWindow.loadFile(PROD_INDEX);
+
+  }
+
+  // Prevent the renderer from being able to navigate the shell away from
+  // the avatar app (defense in depth — the renderer is our own code, but
+  // a stray window.location assignment shouldn't be able to escape the
+  // shell).
+
+  mainWindow.webContents.on(
+    'will-navigate',
+    (event, url) => {
+
+      if (IS_DEV && url.startsWith(DEV_URL)) {
+        return;
+      }
+
+      event.preventDefault();
+
+    }
+  );
+
+  mainWindow.on(
+    'closed',
+    () => {
+
+      mainWindow
+        = null;
+
+    }
+  );
+
+}
+
+// ----------------------------------------------------------------------
+// Tray
+// ----------------------------------------------------------------------
+
+function toggleWindow() {
+
+  if (!mainWindow) {
+    return;
+  }
+
+  if (mainWindow.isVisible()) {
+
+    mainWindow.hide();
+
+  } else {
+
+    mainWindow.show();
+
+    mainWindow.setAlwaysOnTop(
+      true,
+      'screen-saver'
+    );
+
+  }
+
+}
+
+function createTray() {
+
+  tray
+    = new Tray(TRAY_ICON_PATH);
+
+  tray.setToolTip('Persona');
+
+  const contextMenu
+    = Menu.buildFromTemplate([
+
+      {
+        label: 'Show / Hide',
+        click: toggleWindow,
+      },
+
+      { type: 'separator' },
+
+      {
+        label: 'Quit',
+        click: () => {
+
+          app.quit();
+
+        },
+      },
+
+    ]);
+
+  tray.setContextMenu(contextMenu);
+
+  tray.on(
+    'click',
+    toggleWindow
+  );
+
+}
+
+// ----------------------------------------------------------------------
+// IPC
+// ----------------------------------------------------------------------
+
+ipcMain.on(
+  'persona:hide',
+  () => {
+
+    if (mainWindow) {
+      mainWindow.hide();
+    }
+
+  }
+);
+
+// ----------------------------------------------------------------------
+// App lifecycle
+// ----------------------------------------------------------------------
+
+app.whenReady().then(() => {
+
+  createWindow();
+
+  createTray();
+
+});
+
+// Background process: do NOT quit when the window closes. Only the tray
+// "Quit" item terminates Persona.
+
+app.on(
+  'window-all-closed',
+  () => {
+
+    // Intentionally empty on Windows. On macOS we'd also skip quitting,
+    // matching the "stays alive in the dock" convention. Kept here for
+    // portability.
+
+  }
+);
+
+// Standard macOS-style activate handler. Not exercised on Windows but
+// keeps the shell portable.
+
+app.on(
+  'activate',
+  () => {
+
+    if (BrowserWindow.getAllWindows().length === 0) {
+
+      createWindow();
+
+    }
+
+  }
+);

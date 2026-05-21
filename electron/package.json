@@ -1,0 +1,19 @@
+{
+  "name": "persona-electron",
+  "version": "0.1.0",
+  "description": "Persona desktop overlay shell (Phase 1: frameless transparent always-on-top window + tray)",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dev": "concurrently -k -n vite,electron -c blue,magenta \"npm:dev:vite\" \"npm:dev:electron\"",
+    "dev:vite": "npm --prefix ../frontend run dev",
+    "dev:electron": "wait-on http://localhost:5173 && electron .",
+    "postinstall": "node scripts/make-placeholder-icon.js"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "concurrently": "^9.0.1",
+    "wait-on": "^8.0.1"
+  }
+}

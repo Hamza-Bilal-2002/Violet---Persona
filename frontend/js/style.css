@@ -1,12 +1,42 @@
-body {
+html, body {
+  background: transparent !important;
   margin: 0;
+  padding: 0;
   overflow: hidden;
-  background: #111;
   font-family: Arial, sans-serif;
+}
+
+#app, canvas {
+  background: transparent !important;
 }
 
 canvas {
   display: block;
+}
+
+/* Drag region for the frameless Electron window. A thin strip along the
+   top of the viewport that Windows treats as a window caption — click
+   and drag here to move the overlay around. Interactive elements
+   anywhere else on the page remain clickable. */
+#drag-region {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 28px;
+  -webkit-app-region: drag;
+  z-index: 99999;
+  pointer-events: auto;
+}
+
+/* Interactive UI overlays must explicitly opt out of the drag region or
+   they become un-clickable on Windows when they overlap it. */
+#persona-chat,
+#persona-chat *,
+#loading-screen,
+.lil-gui,
+.lil-gui * {
+  -webkit-app-region: no-drag;
 }
 
 #loading-screen {
