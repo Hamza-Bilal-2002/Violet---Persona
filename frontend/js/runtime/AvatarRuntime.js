@@ -49,8 +49,7 @@ export class AvatarRuntime {
 
   constructor({
     scene,
-    camera,
-    loadingScreen
+    camera
   }) {
 
     this.scene =
@@ -62,9 +61,6 @@ export class AvatarRuntime {
 
     this.camera =
       camera;
-
-    this.loadingScreen =
-      loadingScreen;
 
     this.currentVRM =
       null;
@@ -147,11 +143,6 @@ export class AvatarRuntime {
     // LOAD VRM
     // ======================
 
-    this.loadingScreen.update(
-      10,
-      'Loading VRM Model...'
-    );
-
     this.currentVRM =
       await loadVRM(
         this.scene,
@@ -164,11 +155,6 @@ export class AvatarRuntime {
     // ======================
     // MANAGERS
     // ======================
-
-    this.loadingScreen.update(
-      25,
-      'Initializing Systems...'
-    );
 
     this.expressionManager =
       new ExpressionManager(
@@ -235,13 +221,6 @@ export class AvatarRuntime {
     // LOAD ANIMATIONS
     // ======================
 
-    this.loadingScreen.update(
-      35,
-      'Loading Animations...'
-    );
-
-    let loadedCount = 0;
-
     await Promise.all(
 
       AVATAR_ANIMATIONS.map(
@@ -257,22 +236,6 @@ export class AvatarRuntime {
               }
             );
 
-          loadedCount++;
-
-          const progress =
-
-            35 +
-
-            (
-              loadedCount /
-              AVATAR_ANIMATIONS.length
-            ) * 50;
-
-          this.loadingScreen.update(
-            progress,
-            `Loading Animations (${loadedCount}/${AVATAR_ANIMATIONS.length})`
-          );
-
         }
 
       )
@@ -282,11 +245,6 @@ export class AvatarRuntime {
     // ======================
     // START IDLE
     // ======================
-
-    this.loadingScreen.update(
-      90,
-      'Starting Avatar...'
-    );
 
     this.animationManager.play(
       'idle',
@@ -320,8 +278,6 @@ export class AvatarRuntime {
 
     this.currentVRM.scene.visible =
       true;
-
-    this.loadingScreen.complete();
 
     // signal the Electron shell that we're loaded and the
     // window can be revealed. no-op in browser dev mode.
@@ -531,27 +487,21 @@ export class AvatarRuntime {
 
     }
 
-    const dpr =
-      window.devicePixelRatio || 1;
-
-    // Convert the viewport (framebuffer pixels, WebGL origin at
-    // bottom-left of the canvas) into CSS pixels with origin at the
-    // top-left of the window — which is what `event.clientX/Y` use.
+    // The viewport is already in CSS-pixel units (see
+    // RuntimeController.getAvatarViewport). We only need to flip
+    // the WebGL bottom-left origin to CSS top-left.
 
     const vpCssLeft =
-      vp.x / dpr;
+      vp.x;
 
     const vpCssWidth =
-      vp.width / dpr;
+      vp.width;
 
     const vpCssHeight =
-      vp.height / dpr;
-
-    // WebGL y is from the canvas bottom; CSS y is from the top. The
-    // canvas itself is the full window, so:
+      vp.height;
 
     const vpCssTop =
-      window.innerHeight - (vp.y / dpr) - vpCssHeight;
+      window.innerHeight - vp.y - vpCssHeight;
 
     const cursorX =
       this._lastMouse.x;

@@ -106,16 +106,19 @@ export function startUpdateLoop({
     // gets drawn into. The rest of the framebuffer stays at
     // alpha=0 and the Electron compositor passes clicks through.
     //
-    // Use the drawing-buffer size (`.width`/`.height`), not the
-    // CSS-pixel `.clientWidth`/`.clientHeight`, because viewport
-    // and scissor are specified in framebuffer pixels — the
-    // devicePixelRatio is already baked in by `setPixelRatio`.
+    // Three.js's setViewport/setScissor accept values in
+    // CSS-pixel-equivalent units and INTERNALLY multiply by
+    // _pixelRatio before calling gl.viewport. So we MUST pass
+    // CSS-pixel sizes here — using framebuffer pixels would
+    // cause three to multiply by DPR a second time and push the
+    // viewport off-canvas on any high-DPR display (the symptom
+    // was the avatar being mostly clipped to the right edge).
 
     const canvasW =
-      renderer.domElement.width;
+      renderer.domElement.clientWidth;
 
     const canvasH =
-      renderer.domElement.height;
+      renderer.domElement.clientHeight;
 
     // Default viewport: full canvas. Used in the browser dev case
     // where no viewport function is supplied (the avatar fills the

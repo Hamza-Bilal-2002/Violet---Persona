@@ -16,9 +16,6 @@ from '../core/lighting.js';
 import { setupGUI }
 from '../ui/debugGUI.js';
 
-import { LoadingScreen }
-from './LoadingScreen.js';
-
 import { AvatarRuntime }
 from './AvatarRuntime.js';
 
@@ -53,13 +50,6 @@ export class RuntimeController {
     setupLighting(
       this.scene
     );
-
-    // ======================
-    // UI
-    // ======================
-
-    this.loadingScreen =
-      new LoadingScreen();
 
     // ======================
     // VIEWPORT (Phase 2.A)
@@ -106,10 +96,7 @@ export class RuntimeController {
           this.scene,
 
         camera:
-          this.camera,
-
-        loadingScreen:
-          this.loadingScreen
+          this.camera
 
       });
 
@@ -238,42 +225,41 @@ export class RuntimeController {
   // ----------------------------------------------------------------
   // Avatar viewport (bottom-right of the canvas)
   //
-  // Computed every frame from the current canvas drawing-buffer
-  // size. WebGL's viewport/scissor origin is the BOTTOM-LEFT, so a
-  // y-offset of `marginY` puts the avatar that many pixels above
-  // the bottom of the canvas — which sits just above the Windows
-  // taskbar (we sized the BrowserWindow to the work area, so the
-  // canvas bottom edge is the taskbar's top edge).
+  // Returned in CSS-pixel units. WebGL's viewport/scissor origin is
+  // the BOTTOM-LEFT, so a y-offset of `marginY` puts the avatar that
+  // many pixels above the bottom of the canvas — which sits just
+  // above the Windows taskbar (we sized the BrowserWindow to the
+  // work area, so the canvas bottom edge is the taskbar's top edge).
   //
-  // The ideal width/height are capped so the avatar gracefully
-  // shrinks on smaller displays instead of running off-screen.
-  // Dimensions are returned in framebuffer pixels (devicePixelRatio
-  // already factored in) because that is what setViewport/setScissor
-  // expect.
+  // Three.js's setViewport/setScissor accept CSS-pixel values and
+  // multiply by _pixelRatio internally — we must NOT pre-multiply
+  // by DPR here. Doing so caused the avatar to render off-screen on
+  // high-DPR displays in the first Phase 2.A iteration.
+  //
+  // Width/height are sized for portrait framing of the avatar's
+  // upper body (~head + shoulders + waist), capped so smaller
+  // displays still keep her on-screen.
   // ----------------------------------------------------------------
 
   getAvatarViewport(canvasW, canvasH) {
 
-    const dpr =
-      window.devicePixelRatio || 1;
-
     const idealW =
       Math.min(
-        400,
-        (canvasW / dpr) / 4
-      ) * dpr;
+        420,
+        Math.max(280, canvasW * 0.22)
+      );
 
     const idealH =
       Math.min(
-        640,
-        (canvasH / dpr) * 0.75
-      ) * dpr;
+        680,
+        Math.max(420, canvasH * 0.7)
+      );
 
     const marginX =
-      20 * dpr;
+      24;
 
     const marginY =
-      20 * dpr;
+      16;
 
     return {
       x:
