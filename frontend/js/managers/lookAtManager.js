@@ -418,14 +418,24 @@ export class LookAtManager {
     //
     // Place the target a fixed distance in front of the head, in
     // the direction defined by the same yaw/pitch we'll apply to
-    // the head bone. Eyes and head now share one source of truth,
-    // and the target always sits in a sensible world position
-    // regardless of where on screen the cursor is.
+    // the head bone. Eyes and head share one source of truth.
+    //
+    // We use the head's CURRENT world position (post-vrm.update,
+    // which ran earlier this frame) plus a fixed world-space
+    // offset. No rest-quaternion swap, no localToWorld matrix
+    // dance — those caused per-frame floating-point error that
+    // showed up as eye jitter when the cursor was still.
+    //
+    // Assumes the avatar's face direction at rest is world +Z
+    // (VRM convention with the model unrotated). Our scene
+    // satisfies this: avatar at origin, no parent rotation,
+    // camera at +Z looking at origin.
 
-    if (
-      this.headBone &&
-      this._headRestQuat
-    ) {
+    if (this.headBone) {
+
+      this.headBone.getWorldPosition(
+        this._scratchVecA
+      );
 
       const cy =
         Math.cos(this._currentHeadYaw);
@@ -439,40 +449,15 @@ export class LookAtManager {
       const sp =
         Math.sin(this._currentHeadPitch);
 
-      this._scratchVecA.set(
-        sy * cp * this.distance,
-        sp * this.distance,
-        cy * cp * this.distance
-      );
+      this._desiredPosition.set(
+        this._scratchVecA.x +
+          sy * cp * this.distance,
 
-      // Temporarily put the head at its rest orientation so
-      // localToWorld uses the rest frame (otherwise our previous
-      // frame's offset would compound into the target position).
+        this._scratchVecA.y +
+          sp * this.distance,
 
-      const savedQuat =
-        this._tmpQuat.copy(
-          this.headBone.quaternion
-        );
-
-      this.headBone.quaternion.copy(
-        this._headRestQuat
-      );
-
-      this.headBone.updateWorldMatrix(
-        true,
-        false
-      );
-
-      this._desiredPosition.copy(
-        this._scratchVecA
-      );
-
-      this.headBone.localToWorld(
-        this._desiredPosition
-      );
-
-      this.headBone.quaternion.copy(
-        savedQuat
+        this._scratchVecA.z +
+          cy * cp * this.distance
       );
 
     }
