@@ -24,6 +24,28 @@ export function startUpdateLoop({
       animate
     );
 
+    // ======================
+    // SKIP-WHEN-HIDDEN
+    // ======================
+    //
+    // When the BrowserWindow is hidden (tray "Hide", OS minimize,
+    // or full occlusion), Chromium fires visibilitychange and sets
+    // document.hidden=true. We do zero per-frame work in that
+    // state: no animation advance, no VRM evaluate, no GPU draw.
+    //
+    // rAF stays armed so we resume cleanly on visibility change.
+    // We still drain clock.getDelta() so the first visible frame
+    // doesn't get the entire hidden interval dumped on it (which
+    // would jump-cut every animation forward).
+
+    if (document.hidden) {
+
+      clock.getDelta();
+
+      return;
+
+    }
+
     const delta =
       clock.getDelta();
 
