@@ -7,6 +7,7 @@
 const { ipcMain } = require('electron');
 
 const { getMainWindow } = require('./window');
+const { isWakeWordEnabled } = require('./tray');
 
 function registerIpcHandlers() {
 
@@ -83,6 +84,24 @@ function registerIpcHandlers() {
       const mainWindow = getMainWindow();
       if (!mainWindow) {
         return;
+      }
+
+      // Push the initial wake-word state to the renderer now that
+      // it has its onWakeWordToggle listener wired. If the tray
+      // default is ON, the wake client starts as part of the
+      // ready flow — no extra user click required.
+
+      if (isWakeWordEnabled()) {
+
+        console.log(
+          '[shell] persona:ready — enabling wake word'
+        );
+
+        mainWindow.webContents.send(
+          'persona:toggle-wake-word',
+          true
+        );
+
       }
 
       if (mainWindow.isVisible()) {

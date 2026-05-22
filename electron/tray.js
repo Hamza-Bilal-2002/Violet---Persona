@@ -30,7 +30,14 @@ let tray = null;
 
 let debugGuiVisible = false;
 let devToolsOpen = false;
-let wakeWordEnabled = false;
+
+// Wake word defaults to ON now that the wake/ container starts
+// automatically with the rest of the stack. The user can flip it
+// off from the tray menu for privacy moments. The renderer is
+// notified of this initial state in ipc.js when 'persona:ready'
+// fires (everything else needed for wake is up by then).
+
+let wakeWordEnabled = true;
 
 function rebuildTrayMenu() {
 
@@ -193,6 +200,16 @@ function createTray() {
 
 }
 
+// Exposed so ipc.js can fire the initial wake-word state to the
+// renderer on 'persona:ready'. The renderer registers its toggle
+// listener during runtime construction (before ready fires), so by
+// the time we send this it'll be wired up.
+
+function isWakeWordEnabled() {
+  return wakeWordEnabled;
+}
+
 module.exports = {
   createTray,
+  isWakeWordEnabled,
 };
