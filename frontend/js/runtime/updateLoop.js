@@ -13,6 +13,8 @@ export function startUpdateLoop({
   vrm,
   lipSyncManager,
   lookAtManager,
+  getAvatarViewport,
+  onFrame,
 
 }) {
 
@@ -94,13 +96,120 @@ export function startUpdateLoop({
     }
 
     // ======================
-    // RENDER
+    // RENDER (viewport-clipped)
     // ======================
+
+    // Phase 2.A: the canvas covers the entire OS work area, but
+    // the avatar only occupies a sub-region of it (bottom-right).
+    // We clear the whole canvas to transparent each frame, then
+    // scissor + viewport the avatar's box so only that region
+    // gets drawn into. The rest of the framebuffer stays at
+    // alpha=0 and the Electron compositor passes clicks through.
+    //
+    // Use the drawing-buffer size (`.width`/`.height`), not the
+    // CSS-pixel `.clientWidth`/`.clientHeight`, because viewport
+    // and scissor are specified in framebuffer pixels — the
+    // devicePixelRatio is already baked in by `setPixelRatio`.
+
+    const canvasW =
+      renderer.domElement.width;
+
+    const canvasH =
+      renderer.domElement.height;
+
+    // Default viewport: full canvas. Used in the browser dev case
+    // where no viewport function is supplied (the avatar fills the
+    // window like Phase 1's small overlay used to).
+
+    const vp =
+      typeof getAvatarViewport === 'function'
+        ? getAvatarViewport(canvasW, canvasH)
+        : {
+            x: 0,
+            y: 0,
+            width: canvasW,
+            height: canvasH,
+          };
+
+    // 1) Clear the entire canvas to transparent.
+
+    renderer.setScissorTest(false);
+
+    renderer.setViewport(
+      0,
+      0,
+      canvasW,
+      canvasH
+    );
+
+    renderer.clear();
+
+    // 2) Restrict drawing to the avatar sub-region and render.
+
+    renderer.setScissorTest(true);
+
+    renderer.setScissor(
+      vp.x,
+      vp.y,
+      vp.width,
+      vp.height
+    );
+
+    renderer.setViewport(
+      vp.x,
+      vp.y,
+      vp.width,
+      vp.height
+    );
+
+    // Keep the camera aspect matched to the viewport, not the
+    // window. Otherwise the avatar would render squashed/stretched
+    // because the projection still assumes a window-shaped frame.
+
+    if (vp.height > 0) {
+
+      const aspect =
+        vp.width / vp.height;
+
+      if (
+        Math.abs(camera.aspect - aspect) > 0.001
+      ) {
+
+        camera.aspect =
+          aspect;
+
+        camera.updateProjectionMatrix();
+
+      }
+
+    }
 
     renderer.render(
       scene,
       camera
     );
+
+    // ======================
+    // POST-FRAME HOOK
+    // ======================
+
+    // Runs after render so any post-frame work (e.g., Electron
+    // click-through hit-testing in AvatarRuntime) sees the latest
+    // camera/viewport state for this frame.
+
+    if (
+      typeof onFrame === 'function'
+    ) {
+
+      onFrame(
+        {
+          canvasW,
+          canvasH,
+          viewport: vp,
+        }
+      );
+
+    }
 
   }
 

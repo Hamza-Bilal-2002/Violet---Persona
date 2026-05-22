@@ -43,6 +43,26 @@ contextBridge.exposeInMainWorld(
 
     },
 
+    // Phase 2.A: dynamically toggle click-through (Electron's
+    // `setIgnoreMouseEvents`). The renderer raycasts the cursor
+    // against the avatar mesh each frame and calls this with `false`
+    // when the cursor is over the avatar (so it can receive clicks)
+    // and `true` when it is over the surrounding transparent area
+    // (so the user can interact with apps below).
+    //
+    // `forward: true` is enforced on the main-process side so that
+    // mousemove events keep flowing to the renderer regardless of
+    // state — cursor-driven head tracking depends on it.
+
+    setIgnoreMouse: (ignore) => {
+
+      ipcRenderer.send(
+        'persona:set-ignore-mouse',
+        !!ignore
+      );
+
+    },
+
     // Subscribe the renderer to debug-GUI toggle messages sent
     // from the tray menu. The callback receives a boolean — true
     // when the user wants the lil-gui visible, false to hide.

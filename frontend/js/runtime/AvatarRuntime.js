@@ -1,3 +1,6 @@
+import * as THREE
+from 'three';
+
 import { loadVRM }
 from '../loaders/vrmLoader.js';
 
@@ -89,6 +92,52 @@ export class AvatarRuntime {
 
     this._blinkStopped =
       false;
+
+    // ======================
+    // CLICK-THROUGH HIT-TEST (Phase 2.A)
+    // ======================
+    //
+    // The Electron shell defaults to setIgnoreMouseEvents(true, …),
+    // so clicks anywhere on the work area pass through to apps
+    // below. Each frame (post-render) we raycast the cursor against
+    // the VRM mesh and toggle that state: when the cursor is over
+    // the avatar, ignore=false (the avatar can receive events); when
+    // it leaves, ignore=true (click-through resumes). We only send
+    // IPC on state change to avoid flooding the main process.
+
+    this._lastMouse =
+      { x: 0, y: 0 };
+
+    this._lastIgnoreState =
+      null;
+
+    this._hitRaycaster =
+      new THREE.Raycaster();
+
+    this._hitNdc =
+      new THREE.Vector2();
+
+    this._isElectron =
+      typeof window !== 'undefined' &&
+      window.personaShell &&
+      window.personaShell.isElectron === true;
+
+    this._onMouseMoveTrack =
+      (event) => {
+
+        this._lastMouse.x =
+          event.clientX;
+
+        this._lastMouse.y =
+          event.clientY;
+
+      };
+
+    window.addEventListener(
+      'mousemove',
+      this._onMouseMoveTrack,
+      { passive: true }
+    );
 
   }
 
@@ -403,6 +452,153 @@ export class AvatarRuntime {
 
     this._blinkTimeout =
       null;
+
+  }
+
+  // ======================
+  // POST-FRAME (Phase 2.A)
+  // ======================
+  //
+  // Called by the update loop after `renderer.render()`. Re-evaluates
+  // whether the cursor is over the avatar mesh and, if the state has
+  // changed since last frame, asks the Electron shell to flip its
+  // ignoreMouseEvents bit. Cheap in practice: one raycast against the
+  // currently-loaded VRM scene tree per frame.
+
+  onFrameAfterRender(frameCtx) {
+
+    if (!this._isElectron) {
+
+      // Browser dev mode: no Electron shell, nothing to toggle.
+
+      return;
+
+    }
+
+    if (
+      !this.currentVRM ||
+      !this.camera
+    ) {
+
+      return;
+
+    }
+
+    const isOverAvatar =
+      this._isCursorOverAvatar(frameCtx);
+
+    // ignoreMouseEvents semantics: true == pass clicks through.
+    // We want the opposite of `isOverAvatar`: when cursor is over
+    // the avatar, do NOT ignore mouse events (so the avatar can
+    // receive them in the future). Otherwise, ignore them so the
+    // user can interact with apps below the overlay.
+
+    const desiredIgnore =
+      !isOverAvatar;
+
+    if (
+      this._lastIgnoreState === desiredIgnore
+    ) {
+
+      return;
+
+    }
+
+    this._lastIgnoreState =
+      desiredIgnore;
+
+    if (
+      window.personaShell &&
+      typeof window.personaShell.setIgnoreMouse === 'function'
+    ) {
+
+      window.personaShell.setIgnoreMouse(
+        desiredIgnore
+      );
+
+    }
+
+  }
+
+  _isCursorOverAvatar(frameCtx) {
+
+    const vp =
+      frameCtx && frameCtx.viewport;
+
+    if (!vp) {
+
+      return false;
+
+    }
+
+    const dpr =
+      window.devicePixelRatio || 1;
+
+    // Convert the viewport (framebuffer pixels, WebGL origin at
+    // bottom-left of the canvas) into CSS pixels with origin at the
+    // top-left of the window — which is what `event.clientX/Y` use.
+
+    const vpCssLeft =
+      vp.x / dpr;
+
+    const vpCssWidth =
+      vp.width / dpr;
+
+    const vpCssHeight =
+      vp.height / dpr;
+
+    // WebGL y is from the canvas bottom; CSS y is from the top. The
+    // canvas itself is the full window, so:
+
+    const vpCssTop =
+      window.innerHeight - (vp.y / dpr) - vpCssHeight;
+
+    const cursorX =
+      this._lastMouse.x;
+
+    const cursorY =
+      this._lastMouse.y;
+
+    // Early-out: cursor isn't even in the viewport rectangle.
+
+    if (
+      cursorX < vpCssLeft ||
+      cursorX > vpCssLeft + vpCssWidth ||
+      cursorY < vpCssTop ||
+      cursorY > vpCssTop + vpCssHeight
+    ) {
+
+      return false;
+
+    }
+
+    // NDC inside the viewport (not the window). The camera's
+    // projection has already been matched to the viewport aspect in
+    // updateLoop, so the raycaster lines up with what was rendered.
+
+    const ndcX =
+      ((cursorX - vpCssLeft) / vpCssWidth) * 2 - 1;
+
+    const ndcY =
+      -((cursorY - vpCssTop) / vpCssHeight) * 2 + 1;
+
+    this._hitNdc.set(
+      ndcX,
+      ndcY
+    );
+
+    this._hitRaycaster.setFromCamera(
+      this._hitNdc,
+      this.camera
+    );
+
+    const hits =
+      this._hitRaycaster.intersectObject(
+        this.currentVRM.scene,
+        true
+      );
+
+    return hits.length > 0;
 
   }
 

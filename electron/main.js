@@ -107,55 +107,37 @@ let tray
 // Window
 // ----------------------------------------------------------------------
 
-function computeTopRightOrigin(width, height) {
-
-  const display
-    = screen.getPrimaryDisplay();
-
-  const workArea
-    = display.workArea;
-
-  const margin
-    = 40;
-
-  const x
-    = workArea.x
-      + workArea.width
-      - width
-      - margin;
-
-  const y
-    = workArea.y
-      + margin;
-
-  return { x, y };
-
-}
-
 function createWindow() {
 
-  const width
-    = 420;
+  // Phase 2.A: the overlay now covers the entire primary display
+  // work area. Work area = display bounds minus the Windows taskbar
+  // (and any other OS-reserved chrome). The avatar is drawn into a
+  // sub-region of this canvas by the renderer (see updateLoop.js);
+  // the rest of the canvas is fully transparent and click-through.
 
-  const height
-    = 640;
-
-  const { x, y }
-    = computeTopRightOrigin(width, height);
+  const workArea
+    = screen.getPrimaryDisplay().workArea;
 
   mainWindow
     = new BrowserWindow({
 
-      width,
-      height,
-      x,
-      y,
+      x: workArea.x,
+      y: workArea.y,
+      width: workArea.width,
+      height: workArea.height,
 
       frame: false,
       transparent: true,
       alwaysOnTop: true,
       skipTaskbar: true,
-      resizable: true,
+
+      // The window owns the whole work area; there is nothing for
+      // the user to resize or drag. Locking these prevents accidental
+      // OS-level interactions (e.g., Aero snap) from breaking the
+      // overlay geometry.
+
+      resizable: false,
+      movable: false,
       hasShadow: false,
 
       // Stay hidden until the renderer signals 'persona:ready'.
@@ -195,6 +177,21 @@ function createWindow() {
   mainWindow.setAlwaysOnTop(
     true,
     'screen-saver'
+  );
+
+  // Phase 2.A: click-through is ON by default. Clicks anywhere on
+  // the work area pass through to whatever app is below. `forward:
+  // true` is critical — it keeps mousemove events flowing to the
+  // renderer even while clicks are passing through, which is what
+  // lets cursor-driven head tracking cover the entire desktop.
+  //
+  // The renderer hit-tests the cursor against the avatar mesh each
+  // frame and toggles this state via the 'persona:set-ignore-mouse'
+  // IPC channel when the cursor enters or leaves the avatar.
+
+  mainWindow.setIgnoreMouseEvents(
+    true,
+    { forward: true }
   );
 
   if (IS_DEV) {
@@ -437,6 +434,34 @@ ipcMain.on(
     if (mainWindow) {
       mainWindow.hide();
     }
+
+  }
+);
+
+// Phase 2.A: dynamic click-through toggle.
+//
+// The renderer raycasts the cursor against the avatar mesh each
+// frame; when the cursor enters the mesh it sends `false` (stop
+// ignoring — the avatar should receive events). When the cursor
+// leaves, it sends `true` (resume click-through so the user can
+// interact with apps below).
+//
+// `forward: true` is kept on both states so mousemove events
+// continue to flow into the renderer regardless of the
+// click-through bit — head/eye tracking depends on it.
+
+ipcMain.on(
+  'persona:set-ignore-mouse',
+  (_event, ignore) => {
+
+    if (!mainWindow) {
+      return;
+    }
+
+    mainWindow.setIgnoreMouseEvents(
+      !!ignore,
+      { forward: true }
+    );
 
   }
 );

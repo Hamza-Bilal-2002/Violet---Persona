@@ -215,6 +215,22 @@ export class LookAtManager {
     this._tmpQuat =
       new THREE.Quaternion();
 
+    // Phase 2.A: scratch vectors for world-space -> head-parent
+    // local-space conversion. The head Euler is now derived from
+    // the actual direction from the head bone to the lookAt target
+    // (in head-bone-parent's local frame), so the head turns toward
+    // the cursor in the world regardless of where the avatar lives
+    // on screen. Previously the Euler was computed from window NDC,
+    // which assumed the avatar lived at the window center — that
+    // assumption broke when the avatar moved to a bottom-right
+    // viewport.
+
+    this._scratchVecA =
+      new THREE.Vector3();
+
+    this._scratchVecB =
+      new THREE.Vector3();
+
     // One-time diagnostic. Helps us tell from the console
     // which lookAt applier the model uses and confirms the
     // head bone was found.
@@ -286,13 +302,13 @@ export class LookAtManager {
 
       );
 
-    // ---- head bone Euler angles ----
-
-    this._desiredYaw =
-      ndcX * this.maxYawRad;
-
-    this._desiredPitch =
-      ndcY * this.maxPitchRad;
+    // NOTE (Phase 2.A): the head Euler used to be derived from NDC
+    // here, but that assumed the avatar lived at the window center.
+    // With the avatar moved to a bottom-right viewport, the head
+    // Euler is now computed in update() from the world-space
+    // direction between the head bone and the actual lookAt target.
+    // The target itself (above) is still placed correctly because
+    // the raycaster uses the camera's projection.
 
   }
 
@@ -353,6 +369,89 @@ export class LookAtManager {
     ) {
 
       if (this.enabled) {
+
+        // Phase 2.A: derive desired yaw/pitch from the WORLD-space
+        // direction between the head bone and the lookAt target,
+        // transformed into the head bone's parent's local frame.
+        // This works regardless of where the avatar lives on the
+        // screen — the eyes and head share a single source of truth
+        // (the target position), instead of the head reading window
+        // NDC and the eyes reading world coordinates.
+
+        const headParent =
+          this.headBone.parent;
+
+        if (headParent) {
+
+          // Make sure the head parent's world matrix is current
+          // for the conversion. vrm.update has already run this
+          // frame, but the lerped target.position was just updated
+          // above — its world matrix is also stale relative to
+          // this frame's reads, but for a parented Object3D in the
+          // scene, world position == local position relative to the
+          // scene root, and we only need the head parent's matrix.
+
+          headParent.updateWorldMatrix(
+            true,
+            false
+          );
+
+          // Convert the target world position into the head bone's
+          // parent's local space. `worldToLocal` MUTATES its
+          // argument, so we copy the target position into a scratch
+          // vector first.
+
+          const localTarget =
+            this._scratchVecB.copy(
+              this.target.position
+            );
+
+          headParent.worldToLocal(
+            localTarget
+          );
+
+          // Direction from the head bone to the target, in the
+          // parent's local frame. The head bone's local position
+          // is already expressed in this same frame.
+
+          const localDir =
+            this._scratchVecA
+              .copy(localTarget)
+              .sub(this.headBone.position);
+
+          // Yaw around the parent's local Y axis (left/right turn).
+          // Pitch around X is negated because positive pitch (look
+          // up) corresponds to a negative Y-direction sign when we
+          // project onto the XZ plane.
+
+          const desiredYaw =
+            Math.atan2(localDir.x, localDir.z);
+
+          const horizLen =
+            Math.sqrt(
+              localDir.x * localDir.x +
+              localDir.z * localDir.z
+            );
+
+          const desiredPitch =
+            -Math.atan2(localDir.y, horizLen);
+
+          // Clamp to the configured limits so extreme cursor
+          // positions don't snap the neck.
+
+          this._desiredYaw =
+            Math.max(
+              -this.maxYawRad,
+              Math.min(this.maxYawRad, desiredYaw)
+            );
+
+          this._desiredPitch =
+            Math.max(
+              -this.maxPitchRad,
+              Math.min(this.maxPitchRad, desiredPitch)
+            );
+
+        }
 
         this._currentHeadYaw +=
           (this._desiredYaw - this._currentHeadYaw) *

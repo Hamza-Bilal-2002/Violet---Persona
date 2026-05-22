@@ -93,6 +93,23 @@ export function mountChatInput({ onSend }) {
 
   root.id = 'persona-chat';
 
+  // Phase 2.A: hide the chat input in the Electron shell. Voice is
+  // the only input in Phase 2.B and the text bar would block apps
+  // beneath the overlay. We hide rather than skip-mount so Phase 2.B
+  // can call `setVisible(true)` for dev/debug if needed.
+
+  const isElectronShell =
+    typeof window !== 'undefined' &&
+    window.personaShell &&
+    window.personaShell.isElectron === true;
+
+  if (isElectronShell) {
+
+    root.style.display =
+      'none';
+
+  }
+
   const dot =
     document.createElement('div');
 
@@ -173,6 +190,13 @@ export function mountChatInput({ onSend }) {
 
       input.disabled = disabled;
       button.disabled = disabled;
+
+    },
+
+    setVisible(visible) {
+
+      root.style.display =
+        visible ? 'flex' : 'none';
 
     },
 
