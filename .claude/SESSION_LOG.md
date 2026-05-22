@@ -11,7 +11,74 @@ re-explain it.
 
 ## Where we left off (latest first)
 
-### 2026-05-22 — Phase 2.B Wave 1 voice loop fully working
+### 2026-05-22 (evening) — Phase 2.B Wave 2 done → Phase 2 closed
+
+**Status:** Phase 2 fully closed. The product now has push-to-talk,
+streaming wake-word, voice-only input, auto-reconnect with visible
+status, and an animation/render pause when the window is hidden.
+Next concrete unit of work is Phase 3 (Gemini function calling for
+PC task automation).
+
+**What just shipped (4 commits, one per group):**
+
+- **(1/4) Skip per-frame work when window is hidden** —
+  `updateLoop.js` early-returns when `document.hidden`. rAF stays
+  armed so we resume cleanly; clock drained per hidden tick so the
+  first visible frame doesn't jump-cut animations forward.
+- **(2/4) Removed chat input UI** — voice is the only input path
+  now. `frontend/js/ui/chatInput.js` deleted, AvatarRuntime no
+  longer mounts it, style.css and click-through hit-test selectors
+  cleaned. `ENABLE_TEST_DIALOGUE` stays as the offline dev fallback.
+- **(3/4) BackendClient auto-reconnect** — exponential backoff
+  (1→2→4→8→16→30s cap), deliberate `disconnect()` suppresses
+  retries, voice indicator gains a parallel `setConnectionState`
+  channel that overrides voice state with an amber pulsing
+  "Reconnecting..." pill when the socket is down.
+- **(4a/4) Wake-word container** — new `wake/` sibling running
+  `openwakeword 0.6` on `onnxruntime` CPU, FastAPI on port 8003.
+  Bundled `hey_jarvis` keyword for now. Picovoice Porcupine was the
+  obvious pick but they killed personal accounts in late 2024.
+- **(4b/4) Wake-word renderer client + tray toggle** —
+  `WakeWordClient` + `wakeProcessor.js` AudioWorklet. Continuous 16
+  kHz mono Int16 PCM streaming over WS. Tray "Wake Word" checkbox,
+  default off (privacy). On detect, calls new public
+  `VoiceFlow.trigger()` so wake and PTT share the same listen
+  cycle. Audio constraints intentionally raw (no AEC/NS/AGC) so
+  soft "hey jarvis" utterances aren't suppressed.
+
+**Architecture additions:**
+
+- New container: `wake/` (FastAPI + openwakeword, port 8003,
+  WebSocket `/ws` accepts 16 kHz Int16 PCM, emits JSON wake events).
+- New frontend module: `frontend/js/voice/WakeWordClient.js` +
+  `frontend/js/voice/wakeProcessor.js` (AudioWorklet, runs in
+  AudioWorkletGlobalScope so no module imports allowed).
+- New IPC channel: `persona:toggle-wake-word` (tray → renderer).
+- `voiceIndicator` now has two input channels — voice state and
+  connection state — with connection state taking priority.
+
+**Known follow-ups (not blocking, but worth flagging for memory):**
+
+- **Custom "Violet" wake keyword.** Currently we ship `hey_jarvis`.
+  Training a "Violet" model is a ~30-sample recording + a
+  openwakeword Colab run. Worth doing before packaging.
+- **WO Mic / device-selection question** still open. Wake will
+  listen on Windows default device, same caveat as PTT.
+- **Wake container needs to be built before first use.** Run
+  `docker compose build wake` then `docker compose up -d wake`.
+  First build takes a few minutes (downloads ~30MB models).
+
+**Next on the roadmap:**
+
+- **Phase 3 — PC task automation** is the next active phase. The
+  thesis of the product. Gemini function calling on the backend
+  emits `tool_call` frames; Electron main process executes them
+  locally (host apps, system volume, etc.). Start with the trivial
+  ones (open URL, set volume), then Spotify, then Calendar.
+
+---
+
+### 2026-05-22 (afternoon) — Phase 2.B Wave 1 voice loop fully working
 
 **Status:** end-to-end push-to-talk verified. User reports TTS and
 reply quality both feel good.
