@@ -70,6 +70,20 @@ export class LookAtManager {
     this.maxPitchRad =
       options.maxPitchRad ?? 0.30;
 
+    // How far the cursor must travel from the avatar's screen
+    // center (in CSS pixels) to drive the head to maxYaw /
+    // maxPitch. Tune for screen size: ~700 / 500 is a sensible
+    // default for ~1920x1080 — cursor needs roughly half the
+    // screen distance from the avatar to reach full deflection.
+    // Smaller value = more sensitive (head reacts to small cursor
+    // moves); larger value = less sensitive.
+
+    this.sensitivityX =
+      options.sensitivityX ?? 700;
+
+    this.sensitivityY =
+      options.sensitivityY ?? 500;
+
     // ======================
     // STATE
     // ======================
@@ -260,55 +274,20 @@ export class LookAtManager {
   }
 
   // ======================
-  // MOUSE -> NDC -> RAY + ANGLES
+  // MOUSE
   // ======================
 
   _onMouseMove(event) {
 
-    const ndcX =
-      (event.clientX / window.innerWidth) *
-      2 -
-      1;
+    // Just record the latest cursor position. The math that uses
+    // it lives in update() because it needs the per-frame viewport
+    // to know where the avatar is on screen.
 
-    const ndcY =
-      -(event.clientY / window.innerHeight) *
-      2 +
-      1;
+    this._lastCursorX =
+      event.clientX;
 
-    this._ndc.x =
-      ndcX;
-
-    this._ndc.y =
-      ndcY;
-
-    // ---- target position (for vrm.lookAt eyes) ----
-
-    this._raycaster.setFromCamera(
-      this._ndc,
-      this.camera
-    );
-
-    // place the desired target at a fixed distance along
-    // the cursor ray. this is camera-relative, so as the
-    // camera orbits, the eyes still track correctly.
-
-    this._desiredPosition
-      .copy(this._raycaster.ray.origin)
-      .add(
-
-        this._raycaster.ray.direction
-          .clone()
-          .multiplyScalar(this.distance)
-
-      );
-
-    // NOTE (Phase 2.A): the head Euler used to be derived from NDC
-    // here, but that assumed the avatar lived at the window center.
-    // With the avatar moved to a bottom-right viewport, the head
-    // Euler is now computed in update() from the world-space
-    // direction between the head bone and the actual lookAt target.
-    // The target itself (above) is still placed correctly because
-    // the raycaster uses the camera's projection.
+    this._lastCursorY =
+      event.clientY;
 
   }
 
@@ -316,7 +295,7 @@ export class LookAtManager {
   // PER-FRAME
   // ======================
 
-  update(delta) {
+  update(delta, viewport) {
 
     if (
       !this.target ||
@@ -330,7 +309,7 @@ export class LookAtManager {
 
     // gate by animation state: only follow the cursor when
     // no transient animation is playing. otherwise let the
-    // animation own the head — we touch nothing.
+    // animation own the head.
 
     const isIdleState =
       !this.animationManager ||
@@ -339,8 +318,7 @@ export class LookAtManager {
     this.enabled =
       isIdleState;
 
-    // frame-rate-independent lerp. alpha approaches 1 as delta
-    // grows; at 60fps and smoothing=0.25, alpha ~= 0.25 per frame.
+    // frame-rate-independent lerp.
 
     const alpha =
       1 -
@@ -349,191 +327,209 @@ export class LookAtManager {
         delta * 60
       );
 
-    // ---- lookAt target (eyes) ----
+    // ---- 1) DERIVE YAW / PITCH FROM CURSOR OFFSET ----
+    //
+    // Map cursor offset from the avatar's SCREEN CENTER (not the
+    // window center) to a linear yaw/pitch. This is the same
+    // simple math that worked perfectly when the window itself
+    // WAS the avatar's frame in Phase 1 — we just compute the
+    // origin from the viewport now.
+    //
+    // sensitivityX / sensitivityY define how far from the avatar
+    // (in CSS pixels) the cursor must travel to reach maxYaw /
+    // maxPitch. Beyond that, the head saturates at the clamp.
 
-    const desiredTargetPos =
-      this.enabled
-        ? this._desiredPosition
-        : this._neutralPosition;
+    let avatarCx;
+    let avatarCy;
 
-    this.target.position.lerp(
-      desiredTargetPos,
-      alpha
-    );
+    if (
+      viewport &&
+      viewport.width > 0 &&
+      viewport.height > 0
+    ) {
 
-    // ---- head bone (raw-bone rotation override when idle) ----
+      // viewport.x / .y use WebGL bottom-left origin; convert to
+      // CSS coords (top-left origin) for cursor math.
+
+      avatarCx =
+        viewport.x + viewport.width / 2;
+
+      avatarCy =
+        window.innerHeight -
+        (viewport.y + viewport.height / 2);
+
+    } else {
+
+      // browser dev fallback: assume avatar fills the window.
+
+      avatarCx =
+        window.innerWidth / 2;
+
+      avatarCy =
+        window.innerHeight / 2;
+
+    }
+
+    const dx =
+      (this._lastCursorX ?? avatarCx) - avatarCx;
+
+    const dy =
+      (this._lastCursorY ?? avatarCy) - avatarCy;
+
+    const nx =
+      Math.max(
+        -1,
+        Math.min(1, dx / this.sensitivityX)
+      );
+
+    const ny =
+      -Math.max(
+        -1,
+        Math.min(1, dy / this.sensitivityY)
+      );
+
+    if (this.enabled) {
+
+      this._desiredYaw =
+        nx * this.maxYawRad;
+
+      this._desiredPitch =
+        ny * this.maxPitchRad;
+
+    } else {
+
+      this._desiredYaw =
+        0;
+
+      this._desiredPitch =
+        0;
+
+    }
+
+    this._currentHeadYaw +=
+      (this._desiredYaw - this._currentHeadYaw) *
+      alpha;
+
+    this._currentHeadPitch +=
+      (this._desiredPitch - this._currentHeadPitch) *
+      alpha;
+
+    // ---- 2) BUILD WORLD-SPACE LOOKAT TARGET FOR EYES ----
+    //
+    // Place the target a fixed distance in front of the head, in
+    // the direction defined by the same yaw/pitch we'll apply to
+    // the head bone. Eyes and head now share one source of truth,
+    // and the target always sits in a sensible world position
+    // regardless of where on screen the cursor is.
 
     if (
       this.headBone &&
       this._headRestQuat
     ) {
 
-      if (this.enabled) {
+      const cy =
+        Math.cos(this._currentHeadYaw);
 
-        // Phase 2.A v2: compute desired yaw/pitch in the HEAD bone's
-        // OWN local frame at REST. The previous attempt used the
-        // parent's local frame, which depends on whatever rest
-        // rotation the model author baked into the neck — many
-        // VRMs have non-identity neck rest poses that mirror or
-        // rotate the yaw/pitch axes, producing the "quadrants
-        // inverted" symptom.
-        //
-        // Approach:
-        //   1. Temporarily set headBone.quaternion to its REST value
-        //   2. Update world matrices so the head's world transform
-        //      reflects the rest pose
-        //   3. Use headBone.worldToLocal(targetWorld) — this returns
-        //      the target's position in the head's local frame at
-        //      rest, where +Z is forward (the direction the face
-        //      points by VRM convention).
-        //   4. Restore the head's previous quaternion (we'll replace
-        //      it below with rest*offset anyway, but be defensive).
-        //
-        // In the head-local rest frame:
-        //   - target.z > 0 means target is in front of the face
-        //   - target.x > 0 means target is to the avatar's left
-        //   - target.y > 0 means target is above the head
+      const sy =
+        Math.sin(this._currentHeadYaw);
 
-        const savedQuat =
-          this._tmpQuat.copy(
-            this.headBone.quaternion
-          );
+      const cp =
+        Math.cos(this._currentHeadPitch);
 
-        this.headBone.quaternion.copy(
-          this._headRestQuat
+      const sp =
+        Math.sin(this._currentHeadPitch);
+
+      this._scratchVecA.set(
+        sy * cp * this.distance,
+        sp * this.distance,
+        cy * cp * this.distance
+      );
+
+      // Temporarily put the head at its rest orientation so
+      // localToWorld uses the rest frame (otherwise our previous
+      // frame's offset would compound into the target position).
+
+      const savedQuat =
+        this._tmpQuat.copy(
+          this.headBone.quaternion
         );
 
-        this.headBone.updateWorldMatrix(
-          true,
-          false
+      this.headBone.quaternion.copy(
+        this._headRestQuat
+      );
+
+      this.headBone.updateWorldMatrix(
+        true,
+        false
+      );
+
+      this._desiredPosition.copy(
+        this._scratchVecA
+      );
+
+      this.headBone.localToWorld(
+        this._desiredPosition
+      );
+
+      this.headBone.quaternion.copy(
+        savedQuat
+      );
+
+    }
+
+    this.target.position.lerp(
+      this._desiredPosition,
+      alpha
+    );
+
+    // ---- 3) APPLY HEAD ROTATION ----
+    //
+    // Compose: final = rest * offset. The rest quaternion captures
+    // the model's authored head orientation; multiplying our
+    // cursor-derived offset on top keeps the head in a valid pose.
+    // YXZ Euler order keeps yaw (around Y) the outermost rotation
+    // so left/right tracking feels intuitive even when there is
+    // some pitch.
+    //
+    // Overwrites whatever the idle clip wrote — acceptable; the
+    // small idle head sway loses to cursor tracking when idle, and
+    // when non-idle the animation owns the head (we set yaw=pitch=0
+    // above and lerp toward it).
+
+    if (
+      this.headBone &&
+      this._headRestQuat
+    ) {
+
+      this._tmpEuler.set(
+        this._currentHeadPitch,
+        this._currentHeadYaw,
+        0,
+        'YXZ'
+      );
+
+      this._tmpQuat.setFromEuler(
+        this._tmpEuler
+      );
+
+      this.headBone.quaternion
+        .copy(this._headRestQuat)
+        .multiply(this._tmpQuat);
+
+      // throttled diagnostic.
+
+      this._diagFrameCount =
+        (this._diagFrameCount || 0) + 1;
+
+      if (
+        this._diagFrameCount % 120 === 0
+      ) {
+
+        console.debug(
+          '[LookAt] yaw/pitch (rad):',
+          this._currentHeadYaw.toFixed(3),
+          this._currentHeadPitch.toFixed(3)
         );
-
-        const localTarget =
-          this._scratchVecB.copy(
-            this.target.position
-          );
-
-        this.headBone.worldToLocal(
-          localTarget
-        );
-
-        // restore (the apply step below will overwrite this anyway)
-
-        this.headBone.quaternion.copy(
-          savedQuat
-        );
-
-        // Yaw around the head's local Y axis. atan2(x, z) returns 0
-        // when target is dead-ahead (+Z), positive when target is on
-        // the +X side (avatar's left), negative when on -X side.
-        //
-        // Pitch around the head's local X axis. We project onto the
-        // XZ plane and measure the elevation. atan2(y, horiz) is
-        // positive when target is above; we want positive pitch to
-        // mean "look up" in our YXZ Euler, which on a typical VRM
-        // head bone is a positive X rotation -> we keep the sign.
-
-        const dx =
-          localTarget.x;
-
-        const dy =
-          localTarget.y;
-
-        const dz =
-          localTarget.z;
-
-        const horizLen =
-          Math.sqrt(
-            dx * dx +
-            dz * dz
-          );
-
-        const desiredYaw =
-          Math.atan2(dx, dz);
-
-        const desiredPitch =
-          Math.atan2(dy, horizLen);
-
-        // Clamp to the configured limits so extreme cursor
-        // positions don't snap the neck.
-
-        this._desiredYaw =
-          Math.max(
-            -this.maxYawRad,
-            Math.min(this.maxYawRad, desiredYaw)
-          );
-
-        this._desiredPitch =
-          Math.max(
-            -this.maxPitchRad,
-            Math.min(this.maxPitchRad, desiredPitch)
-          );
-
-        this._currentHeadYaw +=
-          (this._desiredYaw - this._currentHeadYaw) *
-          alpha;
-
-        this._currentHeadPitch +=
-          (this._desiredPitch - this._currentHeadPitch) *
-          alpha;
-
-        // Compose: final = rest * offset.
-        // YXZ keeps yaw (around Y) the outermost rotation, so
-        // looking left/right behaves intuitively even when
-        // there is some pitch. The rest quaternion captures the
-        // model's authored head orientation; multiplying our
-        // cursor-derived offset on top keeps the head in a
-        // valid pose. Overwrites whatever the idle clip wrote —
-        // acceptable in v1; the small idle head sway loses to
-        // cursor tracking when idle.
-
-        this._tmpEuler.set(
-          this._currentHeadPitch,
-          this._currentHeadYaw,
-          0,
-          'YXZ'
-        );
-
-        this._tmpQuat.setFromEuler(
-          this._tmpEuler
-        );
-
-        this.headBone.quaternion
-          .copy(this._headRestQuat)
-          .multiply(this._tmpQuat);
-
-        // throttled diagnostic. once every ~120 frames is
-        // enough to confirm angles are sensible without
-        // spamming.
-
-        this._diagFrameCount++;
-
-        if (
-          this._diagFrameCount % 120 === 0
-        ) {
-
-          console.debug(
-            '[LookAt] desired yaw/pitch:',
-            this._desiredYaw.toFixed(3),
-            this._desiredPitch.toFixed(3)
-          );
-
-        }
-
-      } else {
-
-        // non-idle: let the animation own the head. Also
-        // decay our cached current angles back toward zero
-        // so when we resume control, there is no snap from
-        // a stale value.
-
-        this._currentHeadYaw +=
-          (0 - this._currentHeadYaw) *
-          alpha;
-
-        this._currentHeadPitch +=
-          (0 - this._currentHeadPitch) *
-          alpha;
 
       }
 

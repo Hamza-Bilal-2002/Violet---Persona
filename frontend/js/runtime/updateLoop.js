@@ -74,8 +74,20 @@ export function startUpdateLoop({
 
     if (lookAtManager) {
 
+      // Pass the avatar's viewport so LookAtManager can compute
+      // cursor offset from the avatar's actual screen center
+      // (instead of the window center, which doesn't apply when
+      // the avatar lives in a sub-region of the canvas).
+      // viewport is in CSS pixels with WebGL bottom-left origin.
+
       lookAtManager.update(
-        delta
+        delta,
+        getAvatarViewport
+          ? getAvatarViewport(
+              renderer.domElement.clientWidth,
+              renderer.domElement.clientHeight
+            )
+          : null
       );
 
     }
