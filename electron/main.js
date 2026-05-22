@@ -17,6 +17,7 @@ const {
   Menu,
   screen,
   ipcMain,
+  shell,
 }
   = require('electron');
 
@@ -358,6 +359,38 @@ function rebuildTrayMenu() {
           // devtools-closed listeners below — rebuildTrayMenu
           // will be re-invoked there if the user closes
           // DevTools via its window X button.
+
+        },
+      },
+
+      { type: 'separator' },
+
+      {
+
+        // Opens Windows' Taskbar settings page. Windows controls
+        // which tray icons are visible vs. hidden in the overflow
+        // chevron — an app can't programmatically promote its own
+        // icon to "always visible," but pointing the user directly
+        // at the right settings page makes the toggle one click
+        // away. On Win11 this is Settings > Personalization >
+        // Taskbar > "Other system tray icons" where Violet will
+        // appear in the list.
+
+        label: 'Pin to Taskbar...',
+        click: () => {
+
+          shell.openExternal(
+            'ms-settings:taskbar'
+          ).catch(
+            (err) => {
+
+              console.warn(
+                '[shell] failed to open taskbar settings:',
+                err && err.message
+              );
+
+            }
+          );
 
         },
       },
