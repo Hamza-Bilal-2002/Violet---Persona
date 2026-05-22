@@ -41,6 +41,10 @@ services:
     volumes:
       # live reload during dev. remove for prod.
       - ./speech:/app
+      # Persist the Whisper model cache across rebuilds. Without
+      # this, every `docker compose build --no-cache` would re-
+      # download the ~75MB weights at first /transcribe call.
+      - whisper_cache:/root/.cache/huggingface
     restart: unless-stopped
     networks:
       - persona_net
@@ -48,3 +52,6 @@ services:
 networks:
   persona_net:
     driver: bridge
+
+volumes:
+  whisper_cache:

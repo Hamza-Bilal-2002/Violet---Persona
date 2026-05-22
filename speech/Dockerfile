@@ -13,11 +13,14 @@ RUN apt-get update \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Pre-download the Whisper "tiny" weights at build time so the first
-# transcribe request isn't a ~75MB cold-start stall. The runtime
-# loader hits the same on-disk cache.
-
-RUN python -c "from faster_whisper import WhisperModel; WhisperModel('tiny', device='cpu', compute_type='int8')"
+# Note: we deliberately do NOT pre-download the Whisper weights at
+# build time. Doing so caused builds to fail when the build host
+# couldn't reach HuggingFace, and the ctranslate2 binary import
+# during build sometimes failed on certain CPU/QEMU combos.
+#
+# app/main.py loads the model lazily on the first /transcribe
+# request. First call will take ~30-60s downloading ~75MB; the
+# weights persist in the named volume below across rebuilds.
 
 COPY . .
 
