@@ -6,21 +6,24 @@ import * as THREE from 'three';
  * Drives the VRM's head and eye look direction. When the avatar is
  * idle (no transient animation playing), the head and eyes track the
  * mouse cursor. When a non-idle animation is playing (talking,
- * waving, reacting, etc.), the look target smoothly returns to a
- * forward neutral position so the animation's head motion is not
- * overridden by cursor tracking.
+ * waving, reacting, etc.), cursor tracking yields entirely so the
+ * animation owns the head bone.
  *
- * Architecture:
- *   - Owns one Object3D placed in world space — the look target.
- *   - Assigns that target to vrm.lookAt.target.
- *   - On mousemove, projects the cursor through the camera onto a
- *     plane at a fixed distance and stores that as the DESIRED
- *     target position.
- *   - update(delta) lerps the actual target toward the desired
- *     position, frame-rate-independent.
- *   - Polls animationManager.currentNonIdle each frame to choose
- *     between cursor mode (desired = projected) and neutral mode
- *     (desired = forward).
+ * Why we drive the head bone directly:
+ *   VRM 1.0 models commonly ship with `lookAt.applier.type ===
+ *   'expression'`, which means `vrm.lookAt.target` only moves the
+ *   EYES (via blendshapes) and never rotates the head bone. The
+ *   user expects the head to physically turn toward the cursor, so
+ *   we set the head bone's local rotation ourselves in addition to
+ *   the standard lookAt target (the latter still benefits eyes).
+ *
+ * Per-frame order contract (see runtime/updateLoop.js):
+ *   controls -> animationManager -> vrm -> lookAtManager -> ...
+ *
+ *   We must run AFTER vrm.update so that the animation mixer's
+ *   write to the head bone is in place — then we overwrite it with
+ *   our lerped Euler. If we ran before vrm.update, the mixer would
+ *   clobber us every frame and the head would never move.
  */
 
 export class LookAtManager {
@@ -28,6 +31,7 @@ export class LookAtManager {
   constructor({
     vrm,
     camera,
+    scene,
     animationManager,
     options = {},
   }) {
@@ -38,20 +42,33 @@ export class LookAtManager {
     this.camera =
       camera;
 
+    this.scene =
+      scene;
+
     this.animationManager =
       animationManager;
 
-    // higher = snappier head tracking. 0.15 gives a calm,
-    // human-feeling delay. tune in updateLoop calls per frame.
+    // higher = snappier head tracking. 0.25 gives a visibly
+    // responsive but still smooth follow at 60fps.
 
     this.smoothing =
-      options.smoothing ?? 0.15;
+      options.smoothing ?? 0.25;
 
     // distance from the camera at which the look target sits.
     // closer = more sensitive head movement per cursor pixel.
 
     this.distance =
       options.distance ?? 2.0;
+
+    // max head rotation (radians) at the screen edges. ~26°
+    // yaw, ~17° pitch is roughly what feels natural without
+    // breaking the neck mesh.
+
+    this.maxYawRad =
+      options.maxYawRad ?? 0.45;
+
+    this.maxPitchRad =
+      options.maxPitchRad ?? 0.30;
 
     // ======================
     // STATE
@@ -92,6 +109,26 @@ export class LookAtManager {
     this._ndc =
       new THREE.Vector2();
 
+    // desired head Euler — set from mousemove. lerped toward
+    // by `_currentHeadYaw` / `_currentHeadPitch` each frame.
+
+    this._desiredYaw =
+      0;
+
+    this._desiredPitch =
+      0;
+
+    this._currentHeadYaw =
+      0;
+
+    this._currentHeadPitch =
+      0;
+
+    // diagnostic throttle for the per-frame desired-angles log.
+
+    this._diagFrameCount =
+      0;
+
     // ======================
     // BIND TO VRM
     // ======================
@@ -107,10 +144,60 @@ export class LookAtManager {
     } else {
 
       console.warn(
-        'LookAtManager: vrm.lookAt missing — tracking disabled'
+        'LookAtManager: vrm.lookAt missing — eye tracking disabled'
       );
 
     }
+
+    // Attach the target to the scene so its world matrix is
+    // updated by three.js each frame. Without a parent in the
+    // scene graph, vrm.lookAt would read a stale matrix and
+    // eye direction would lag or freeze.
+
+    if (
+      this.scene &&
+      !this.target.parent
+    ) {
+
+      this.scene.add(
+        this.target
+      );
+
+    }
+
+    // Cache the head bone reference. Normalized humanoid gives
+    // us the rotation-canonical bone regardless of how the
+    // VRM was authored.
+
+    this.headBone =
+      (
+        vrm &&
+        vrm.humanoid &&
+        typeof vrm.humanoid.getNormalizedBoneNode === 'function'
+      )
+        ? vrm.humanoid.getNormalizedBoneNode('head')
+        : null;
+
+    if (!this.headBone) {
+
+      console.warn(
+        'LookAtManager: head bone not found — head rotation disabled'
+      );
+
+    }
+
+    // One-time diagnostic. Helps us tell from the console
+    // which lookAt applier the model uses and confirms the
+    // head bone was found.
+
+    console.info(
+      '[LookAt] head bone:',
+      this.headBone ? this.headBone.name : '(none)',
+      'lookAt applier:',
+      vrm && vrm.lookAt && vrm.lookAt.applier
+        ? vrm.lookAt.applier.constructor.name
+        : '(none)'
+    );
 
     // ======================
     // INPUT
@@ -128,20 +215,28 @@ export class LookAtManager {
   }
 
   // ======================
-  // MOUSE -> RAY -> WORLD
+  // MOUSE -> NDC -> RAY + ANGLES
   // ======================
 
   _onMouseMove(event) {
 
-    this._ndc.x =
+    const ndcX =
       (event.clientX / window.innerWidth) *
       2 -
       1;
 
-    this._ndc.y =
+    const ndcY =
       -(event.clientY / window.innerHeight) *
       2 +
       1;
+
+    this._ndc.x =
+      ndcX;
+
+    this._ndc.y =
+      ndcY;
+
+    // ---- target position (for vrm.lookAt eyes) ----
 
     this._raycaster.setFromCamera(
       this._ndc,
@@ -150,7 +245,7 @@ export class LookAtManager {
 
     // place the desired target at a fixed distance along
     // the cursor ray. this is camera-relative, so as the
-    // camera orbits, the head still tracks correctly.
+    // camera orbits, the eyes still track correctly.
 
     this._desiredPosition
       .copy(this._raycaster.ray.origin)
@@ -161,6 +256,14 @@ export class LookAtManager {
           .multiplyScalar(this.distance)
 
       );
+
+    // ---- head bone Euler angles ----
+
+    this._desiredYaw =
+      ndcX * this.maxYawRad;
+
+    this._desiredPitch =
+      ndcY * this.maxPitchRad;
 
   }
 
@@ -181,8 +284,8 @@ export class LookAtManager {
     }
 
     // gate by animation state: only follow the cursor when
-    // no transient animation is playing. otherwise return
-    // smoothly to forward so animations drive the head.
+    // no transient animation is playing. otherwise let the
+    // animation own the head — we touch nothing.
 
     const isIdleState =
       !this.animationManager ||
@@ -191,13 +294,8 @@ export class LookAtManager {
     this.enabled =
       isIdleState;
 
-    const desired =
-      this.enabled
-        ? this._desiredPosition
-        : this._neutralPosition;
-
     // frame-rate-independent lerp. alpha approaches 1 as delta
-    // grows; at 60fps and smoothing=0.15, alpha ~= 0.15 per frame.
+    // grows; at 60fps and smoothing=0.25, alpha ~= 0.25 per frame.
 
     const alpha =
       1 -
@@ -206,10 +304,81 @@ export class LookAtManager {
         delta * 60
       );
 
+    // ---- lookAt target (eyes) ----
+
+    const desiredTargetPos =
+      this.enabled
+        ? this._desiredPosition
+        : this._neutralPosition;
+
     this.target.position.lerp(
-      desired,
+      desiredTargetPos,
       alpha
     );
+
+    // ---- head bone (direct rotation override when idle) ----
+
+    if (this.headBone) {
+
+      if (this.enabled) {
+
+        this._currentHeadYaw +=
+          (this._desiredYaw - this._currentHeadYaw) *
+          alpha;
+
+        this._currentHeadPitch +=
+          (this._desiredPitch - this._currentHeadPitch) *
+          alpha;
+
+        // YXZ keeps yaw (around Y) the outermost rotation, so
+        // looking left/right behaves intuitively even when
+        // there is some pitch. Overwrites whatever the idle
+        // clip wrote — acceptable in v1; the small idle head
+        // sway loses to cursor tracking when idle.
+
+        this.headBone.rotation.set(
+          this._currentHeadPitch,
+          this._currentHeadYaw,
+          0,
+          'YXZ'
+        );
+
+        // throttled diagnostic. once every ~120 frames is
+        // enough to confirm angles are sensible without
+        // spamming.
+
+        this._diagFrameCount++;
+
+        if (
+          this._diagFrameCount % 120 === 0
+        ) {
+
+          console.debug(
+            '[LookAt] desired yaw/pitch:',
+            this._desiredYaw.toFixed(3),
+            this._desiredPitch.toFixed(3)
+          );
+
+        }
+
+      } else {
+
+        // non-idle: let the animation own the head. Also
+        // decay our cached current angles back toward zero
+        // so when we resume control, there is no snap from
+        // a stale value.
+
+        this._currentHeadYaw +=
+          (0 - this._currentHeadYaw) *
+          alpha;
+
+        this._currentHeadPitch +=
+          (0 - this._currentHeadPitch) *
+          alpha;
+
+      }
+
+    }
 
   }
 
@@ -223,6 +392,18 @@ export class LookAtManager {
       'mousemove',
       this._onMouseMove
     );
+
+    if (
+      this.scene &&
+      this.target &&
+      this.target.parent === this.scene
+    ) {
+
+      this.scene.remove(
+        this.target
+      );
+
+    }
 
     if (
       this.vrm &&

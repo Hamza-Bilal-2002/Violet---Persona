@@ -138,7 +138,9 @@ export class AvatarRuntime {
 
     // head + eye tracking on cursor when idle.
     // depends on animationManager being ready (it polls
-    // currentNonIdle to gate the tracking).
+    // currentNonIdle to gate the tracking). also needs the
+    // scene to attach the world-space lookAt target so its
+    // matrix updates reliably each frame.
 
     this.lookAtManager =
       new LookAtManager({
@@ -148,6 +150,9 @@ export class AvatarRuntime {
 
         camera:
           this.camera,
+
+        scene:
+          this.scene,
 
         animationManager:
           this.animationManager,

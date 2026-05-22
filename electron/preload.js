@@ -43,5 +43,25 @@ contextBridge.exposeInMainWorld(
 
     },
 
+    // Subscribe the renderer to debug-GUI toggle messages sent
+    // from the tray menu. The callback receives a boolean — true
+    // when the user wants the lil-gui visible, false to hide.
+    // The renderer is expected to register exactly one listener
+    // (during RuntimeController setup); calling this multiple
+    // times is unsupported and would stack subscriptions.
+
+    onToggleDebugGui: (callback) => {
+
+      ipcRenderer.on(
+        'persona:toggle-debug-gui',
+        (_event, visible) => {
+
+          callback(visible);
+
+        }
+      );
+
+    },
+
   }
 );

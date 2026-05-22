@@ -108,15 +108,47 @@ export class RuntimeController {
     // DEBUG GUI
     // ======================
 
-    setupGUI(
+    this.debugGui =
+      setupGUI(
 
-      this.avatarRuntime
-        .expressionManager,
+        this.avatarRuntime
+          .expressionManager,
 
-      this.avatarRuntime
-        .animationManager
+        this.avatarRuntime
+          .animationManager
 
-    );
+      );
+
+    // Wire the Electron tray "Debug GUI" toggle to the lil-gui
+    // visibility. No-op in browser dev mode where personaShell
+    // is undefined.
+
+    if (
+      window.personaShell &&
+      typeof window.personaShell.onToggleDebugGui === 'function'
+    ) {
+
+      window.personaShell.onToggleDebugGui(
+        (visible) => {
+
+          if (!this.debugGui) {
+            return;
+          }
+
+          if (visible) {
+
+            this.debugGui.show();
+
+          } else {
+
+            this.debugGui.hide();
+
+          }
+
+        }
+      );
+
+    }
 
     // ======================
     // UPDATE LOOP

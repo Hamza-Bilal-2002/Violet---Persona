@@ -46,27 +46,33 @@ export function startUpdateLoop({
     }
 
     // ======================
-    // LOOK AT
-    // ======================
-
-    // run BEFORE vrm.update so the target's new position
-    // is in place when VRMLookAt evaluates head/eye angles.
-
-    if (lookAtManager) {
-
-      lookAtManager.update(
-        delta
-      );
-
-    }
-
-    // ======================
     // VRM UPDATE
     // ======================
 
     if (vrm) {
 
       vrm.update(
+        delta
+      );
+
+    }
+
+    // ======================
+    // LOOK AT
+    // ======================
+
+    // MUST run AFTER vrm.update. The animation mixer (in
+    // animationManager.update via vrm.update's downstream
+    // bone evaluation) writes the head bone every frame. If
+    // we set our cursor-driven head rotation before that, the
+    // mixer immediately overwrites us and the head appears
+    // frozen relative to the cursor. Running last on the
+    // head-affecting chain (before render) lets our write
+    // stick for the frame.
+
+    if (lookAtManager) {
+
+      lookAtManager.update(
         delta
       );
 

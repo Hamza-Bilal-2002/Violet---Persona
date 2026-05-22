@@ -32,6 +32,14 @@ export function setupGUI(
 
   );
 
+  // Default to hidden — the polished desktop overlay should
+  // not display debug controls on launch. The tray "Debug GUI"
+  // toggle (Electron) or a future hotkey is the way in.
+
+  gui.hide();
+
+  return gui;
+
 }
 
 // =========================
