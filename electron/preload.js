@@ -130,5 +130,19 @@ contextBridge.exposeInMainWorld(
 
     },
 
+    // Phase 3 Wave 3.1: execute a tool in the main process. Returns
+    // a Promise resolving to {result} on success or {error} on
+    // failure. BackendClient relays this from tool_call frames the
+    // backend forwards out of Gemini's function-calling loop.
+
+    executeTool: (name, args) => {
+
+      return ipcRenderer.invoke(
+        'persona:execute-tool',
+        { name, args }
+      );
+
+    },
+
   }
 );

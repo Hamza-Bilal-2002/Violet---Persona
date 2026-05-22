@@ -8,6 +8,7 @@ const { ipcMain } = require('electron');
 
 const { getMainWindow } = require('./window');
 const { isWakeWordEnabled } = require('./tray');
+const tools = require('./tools');
 
 function registerIpcHandlers() {
 
@@ -118,6 +119,39 @@ function registerIpcHandlers() {
       // reset it on first paint.
 
       mainWindow.setAlwaysOnTop(true, 'screen-saver');
+
+    }
+  );
+
+  // Phase 3 (Wave 3.1): renderer relays a tool_call from the backend
+  // here. We dispatch to electron/tools/index.js and return either
+  // {result} or {error}. ipcMain.handle is the right choice (not
+  // .on) because the renderer awaits this via invoke().
+
+  ipcMain.handle(
+    'persona:execute-tool',
+    async (_event, payload) => {
+
+      const name =
+        payload && payload.name;
+
+      const args =
+        (payload && payload.args) || {};
+
+      console.log(
+        `[shell] execute-tool: ${name}`,
+        args
+      );
+
+      const outcome =
+        await tools.execute(name, args);
+
+      console.log(
+        `[shell] execute-tool result for ${name}:`,
+        outcome
+      );
+
+      return outcome;
 
     }
   );

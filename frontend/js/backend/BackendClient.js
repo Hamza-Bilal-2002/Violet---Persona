@@ -338,6 +338,18 @@ export class BackendClient {
 
     }
 
+    if (msg.type === 'tool_call') {
+
+      // Phase 3 Wave 3.1: backend forwarded a Gemini function_call
+      // for the renderer to execute. Don't await here — let the
+      // WS read loop keep flowing while the tool runs.
+
+      this._handleToolCall(msg);
+
+      return;
+
+    }
+
     if (msg.type !== 'reply') {
 
       console.warn(
@@ -368,6 +380,103 @@ export class BackendClient {
         1,
 
     });
+
+  }
+
+  // ======================
+  // TOOL CALL (Phase 3 Wave 3.1)
+  // ======================
+  //
+  // Backend forwarded a Gemini function_call. Execute it via the
+  // Electron shell and ship the result back as a tool_result frame.
+  // Errors are explicitly surfaced — Gemini wants to know if a tool
+  // failed so it can recover (apologize, retry, ask for clarification).
+
+  async _handleToolCall(msg) {
+
+    const id =
+      msg.id;
+
+    const name =
+      msg.name;
+
+    const args =
+      msg.args || {};
+
+    console.log(
+      `BackendClient: tool_call ${name}`,
+      args
+    );
+
+    let outcome;
+
+    const shell =
+      typeof window !== 'undefined'
+        ? window.personaShell
+        : null;
+
+    if (
+      shell &&
+      typeof shell.executeTool === 'function'
+    ) {
+
+      try {
+
+        outcome =
+          await shell.executeTool(name, args);
+
+      } catch (err) {
+
+        outcome = {
+          error:
+            err && err.message
+              ? err.message
+              : String(err),
+        };
+
+      }
+
+    } else {
+
+      // Browser dev mode — no shell to run host-OS actions.
+
+      outcome = {
+        error:
+          'tool execution requires the Electron shell',
+      };
+
+    }
+
+    this._sendToolResult(id, outcome);
+
+  }
+
+  _sendToolResult(id, outcome) {
+
+    if (
+      !this.ws ||
+      this.ws.readyState !== WebSocket.OPEN
+    ) {
+
+      console.warn(
+        'BackendClient: socket not open, dropping tool_result ' +
+        `for ${id}`
+      );
+
+      return;
+
+    }
+
+    const frame = {
+      type:
+        'tool_result',
+      id,
+      ...outcome,
+    };
+
+    this.ws.send(
+      JSON.stringify(frame)
+    );
 
   }
 

@@ -2,6 +2,11 @@
 Gemini 2.5 Flash integration. One provider for now — abstraction
 kept thin so we can add Ollama / OpenAI later without changing
 callers. See memory: backend-mvp-gemini-only.
+
+Phase 3 changed the shape of this module. Previously reply()
+returned a single string. Now start_chat() returns a stateful
+session that callers can drive through a multi-step function-call
+loop (see backend/app/main.py for the orchestration).
 """
 
 from __future__ import annotations
@@ -10,6 +15,7 @@ import google.generativeai as genai
 from loguru import logger
 
 from .config import settings
+from .tools import TOOL
 
 
 # System prompt is built at module import from agent identity in
@@ -75,6 +81,14 @@ Example reply (note: ONE short sentence, no emoji, tags at start):
 
 Place the tags ONCE at the start. Do not repeat them mid-reply.
 Do not narrate your emotion or animation in the text itself.
+
+TOOLS:
+You can perform actions on {USER_NAME}'s PC through tools the system
+exposes to you (e.g., open_url). When {USER_NAME} asks for an action
+you can take with a tool, call the tool — do not just describe what
+you would do. After the tool returns, give a brief in-character
+confirmation in your reply. Do not include tags in tool calls; tags
+only belong in spoken replies.
 """
 
 
@@ -89,8 +103,80 @@ def _build_system_prompt() -> str:
 SYSTEM_PROMPT = _build_system_prompt()
 
 
+class GeminiChatSession:
+    """One in-flight dialogue exchange. Wraps a Gemini ChatSession so
+    main.py can drive the function-call loop without owning SDK
+    types directly.
+
+    A single user message may take multiple turns inside this object:
+    user text -> maybe function_call(s) -> function_response(s) ->
+    text reply. main.py decides when to bail and emit the text.
+    """
+
+    def __init__(self, chat) -> None:
+        self._chat = chat
+
+    def send_user_message(self, message: str) -> dict:
+        """Send fresh user input. Returns parsed response dict."""
+        response = self._chat.send_message(message)
+        return self._parse(response)
+
+    def send_function_responses(self, responses: list[tuple]) -> dict:
+        """Send N tool results back to Gemini in one Content message.
+
+        Args:
+          responses: list of (function_name, payload_dict) tuples.
+            payload typically has {"result": ...} or {"error": ...}.
+        """
+        parts = [
+            genai.protos.Part(
+                function_response=genai.protos.FunctionResponse(
+                    name=name,
+                    response=payload,
+                )
+            )
+            for name, payload in responses
+        ]
+        response = self._chat.send_message(
+            genai.protos.Content(parts=parts)
+        )
+        return self._parse(response)
+
+    @staticmethod
+    def _parse(response) -> dict:
+        """Pull text + function_calls out of a Gemini response.
+
+        Gemini in function-calling mode typically emits EITHER text
+        OR function_calls per turn, but the SDK permits mixed parts
+        so we accumulate both defensively.
+        """
+        text_parts: list[str] = []
+        function_calls: list[dict] = []
+
+        for candidate in response.candidates or []:
+            for part in candidate.content.parts:
+                fc = getattr(part, "function_call", None)
+                if fc and fc.name:
+                    function_calls.append({
+                        "name": fc.name,
+                        # fc.args is a MapComposite; coerce to plain
+                        # dict so downstream code can JSON-serialize.
+                        "args": dict(fc.args) if fc.args else {},
+                    })
+                    continue
+                text = getattr(part, "text", None)
+                if text:
+                    text_parts.append(text)
+
+        return {
+            "text": "".join(text_parts),
+            "function_calls": function_calls,
+        }
+
+
 class GeminiClient:
-    """Stateless wrapper around the Gemini SDK."""
+    """Thin wrapper that owns model configuration and produces
+    per-turn chat sessions."""
 
     def __init__(self) -> None:
         if not settings.GEMINI_API_KEY:
@@ -108,10 +194,12 @@ class GeminiClient:
         return genai.GenerativeModel(
             model_name=self._model_name,
             system_instruction=SYSTEM_PROMPT,
+            tools=[TOOL],
         )
 
-    def reply(self, user_message: str, history: list[dict]) -> str:
-        """Send user message + history, return the raw LLM text (tags included)."""
+    def start_chat(self, history: list[dict]) -> GeminiChatSession:
+        """Start a fresh chat seeded with the running conversation
+        history. The session is single-use — one per WS message."""
         if not self._configured:
             raise RuntimeError(
                 "Gemini not configured. Set GEMINI_API_KEY in backend/.env"
@@ -128,8 +216,7 @@ class GeminiClient:
             )
 
         chat = model.start_chat(history=gemini_history)
-        response = chat.send_message(user_message)
-        return response.text or ""
+        return GeminiChatSession(chat)
 
 
 client = GeminiClient()
