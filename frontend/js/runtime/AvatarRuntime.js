@@ -330,6 +330,17 @@ export class AvatarRuntime {
     this.autoBlink();
 
     // ======================
+    // VOICE INDICATOR
+    // ======================
+    //
+    // Mounted before BackendClient so the very first 'connecting'
+    // status (fired synchronously inside connect()) has a surface
+    // to render against.
+
+    this.voiceIndicator =
+      mountVoiceIndicator();
+
+    // ======================
     // BACKEND
     // ======================
     //
@@ -338,8 +349,10 @@ export class AvatarRuntime {
     // The ENABLE_TEST_DIALOGUE flag below still provides an offline
     // dev fallback that enqueues directly into dialogueManager.
     //
-    // BackendClient status is logged for now; the upcoming
-    // reconnection work will surface it through voiceIndicator.
+    // Connection status is routed into voiceIndicator's
+    // setConnectionState channel, which takes priority over voice
+    // states (no point pretending we're listening while the socket
+    // is down).
 
     this.backendClient =
       new BackendClient({
@@ -352,8 +365,8 @@ export class AvatarRuntime {
 
         onStatusChange: (status) => {
 
-          console.log(
-            `BackendClient status: ${status}`
+          this.voiceIndicator.setConnectionState(
+            status
           );
 
         },
@@ -377,9 +390,6 @@ export class AvatarRuntime {
     // In plain-browser dev mode there is no Electron preload, so
     // VoiceFlow.start() no-ops and the chat input above stays the
     // sole input.
-
-    this.voiceIndicator =
-      mountVoiceIndicator();
 
     this.voiceFlow =
       new VoiceFlow({

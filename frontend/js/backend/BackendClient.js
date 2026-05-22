@@ -6,6 +6,12 @@
  * DialogueManager's existing enqueue() API — the speak/animate
  * pipeline downstream is unchanged.
  *
+ * Status lifecycle:
+ *   'connecting'   first attempt after connect()
+ *   'connected'    socket open, ready to send
+ *   'reconnecting' socket closed unexpectedly, backoff timer armed
+ *   'disconnected' deliberate disconnect() — won't auto-reconnect
+ *
  * Reply frame shape (from backend/app/protocol.py):
  *   {
  *     "type": "reply",
@@ -17,6 +23,12 @@
  * Error frame:
  *   { "type": "error", "message": "..." }
  */
+
+const RECONNECT_BASE_MS =
+  1000;
+
+const RECONNECT_MAX_MS =
+  30000;
 
 export class BackendClient {
 
@@ -47,6 +59,30 @@ export class BackendClient {
 
     this._pending = [];
 
+    // ======================
+    // RECONNECT STATE
+    // ======================
+    //
+    // Auto-reconnect on unexpected close (backend container
+    // restart, network blip, OS sleep). Exponential backoff
+    // doubles each attempt and caps at RECONNECT_MAX_MS so we
+    // never thrash the backend or the indicator. The counter
+    // resets to zero on a successful 'open' event.
+    //
+    // _intentionallyDisconnected suppresses reconnect after the
+    // caller has explicitly torn the client down — without it,
+    // disconnect() would race with the close-event handler and
+    // immediately schedule a retry.
+
+    this._reconnectAttempt =
+      0;
+
+    this._reconnectTimer =
+      null;
+
+    this._intentionallyDisconnected =
+      false;
+
   }
 
   // ======================
@@ -67,6 +103,15 @@ export class BackendClient {
 
     }
 
+    // Either we're connecting for the first time or the user
+    // forced a retry. Either way, the prior reconnect timer (if
+    // any) is now stale.
+
+    this._clearReconnectTimer();
+
+    this._intentionallyDisconnected =
+      false;
+
     this._setStatus('connecting');
 
     const ws =
@@ -79,6 +124,9 @@ export class BackendClient {
         console.log(
           'BackendClient: connected'
         );
+
+        this._reconnectAttempt =
+          0;
 
         this._setStatus('connected');
 
@@ -116,10 +164,24 @@ export class BackendClient {
           'BackendClient: socket closed'
         );
 
-        this._setStatus('disconnected');
+        this.ws =
+          null;
+
+        if (this._intentionallyDisconnected) {
+
+          this._setStatus('disconnected');
+
+          return;
+
+        }
+
+        this._scheduleReconnect();
 
       }
     );
+
+    // The WebSocket 'error' event always precedes 'close', so we
+    // let 'close' own the status transition. Logging only here.
 
     ws.addEventListener(
       'error',
@@ -130,12 +192,70 @@ export class BackendClient {
           err
         );
 
-        this._setStatus('error');
-
       }
     );
 
     this.ws = ws;
+
+  }
+
+  // ======================
+  // RECONNECT
+  // ======================
+
+  _scheduleReconnect() {
+
+    if (this._reconnectTimer) {
+
+      return;
+
+    }
+
+    const delayMs =
+      Math.min(
+        RECONNECT_BASE_MS *
+          Math.pow(2, this._reconnectAttempt),
+        RECONNECT_MAX_MS
+      );
+
+    const attemptNumber =
+      this._reconnectAttempt + 1;
+
+    console.log(
+      `BackendClient: reconnecting in ${delayMs}ms ` +
+      `(attempt ${attemptNumber})`
+    );
+
+    this._setStatus('reconnecting');
+
+    this._reconnectTimer =
+      setTimeout(
+        () => {
+
+          this._reconnectTimer =
+            null;
+
+          this._reconnectAttempt +=
+            1;
+
+          this.connect();
+
+        },
+        delayMs
+      );
+
+  }
+
+  _clearReconnectTimer() {
+
+    if (this._reconnectTimer) {
+
+      clearTimeout(this._reconnectTimer);
+
+      this._reconnectTimer =
+        null;
+
+    }
 
   }
 
@@ -276,11 +396,20 @@ export class BackendClient {
 
   disconnect() {
 
+    this._intentionallyDisconnected =
+      true;
+
+    this._clearReconnectTimer();
+
     if (this.ws) {
+
+      // The close-event handler will see
+      // _intentionallyDisconnected and skip the auto-reconnect.
 
       this.ws.close();
 
-      this.ws = null;
+      this.ws =
+        null;
 
     }
 

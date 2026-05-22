@@ -3,17 +3,26 @@
  * VoiceFlow state. Positioned bottom-right, near where Violet
  * stands in the click-through overlay.
  *
- * States:
- *   listening — pulsing red dot,    "Listening..."
- *   thinking  — yellow dot,         "Thinking..."
- *   speaking  — green dot,          "Speaking..."
- *   error     — gray dot + custom message, auto-hides after ~2 s
- *   idle      — hidden
+ * Voice states (setState):
+ *   listening    — pulsing red dot,    "Listening..."
+ *   thinking     — yellow dot,         "Thinking..."
+ *   speaking     — green dot,          "Speaking..."
+ *   error        — gray dot + custom message, auto-hides after ~2 s
+ *   idle         — hidden
+ *
+ * Connection states (setConnectionState):
+ *   connecting   — pulsing amber dot,  "Connecting..."
+ *   reconnecting — pulsing amber dot,  "Reconnecting..."
+ *   connected    — transparent — falls back to voice state
+ *
+ * Connection state takes priority over voice state. If the backend
+ * is down, listening is pointless, so we surface the reason instead.
  *
  * Usage:
  *   const indicator = mountVoiceIndicator();
  *   indicator.setState('listening');
- *   indicator.setState('error', { message: 'Mic unavailable' });
+ *   indicator.setConnectionState('reconnecting');
+ *   indicator.setConnectionState('connected'); // back to voice state
  *   indicator.setState('idle');  // hides it
  *   indicator.destroy();
  */
@@ -37,6 +46,12 @@ const STATE_LABELS = {
 
   error:
     'Couldn\'t hear you',
+
+  connecting:
+    'Connecting...',
+
+  reconnecting:
+    'Reconnecting...',
 
 };
 
@@ -100,6 +115,11 @@ export function mountVoiceIndicator() {
       #${ROOT_ID}.state-error .voice-dot {
         background: #888;
       }
+      #${ROOT_ID}.state-connecting .voice-dot,
+      #${ROOT_ID}.state-reconnecting .voice-dot {
+        background: #f59e0b;
+        animation: persona-voice-pulse 1.4s ease-in-out infinite;
+      }
       @keyframes persona-voice-pulse {
         0%, 100% { transform: scale(1); opacity: 1; }
         50%      { transform: scale(1.3); opacity: 0.55; }
@@ -141,9 +161,23 @@ export function mountVoiceIndicator() {
   // ======================
   // STATE
   // ======================
+  //
+  // Two independent input channels — VoiceFlow drives voice state,
+  // BackendClient drives connection state. Connection issues take
+  // priority over voice state because there's no point pretending
+  // we're "listening" while the socket is down.
 
-  const setState =
-    (state, info) => {
+  let voiceState =
+    null;
+
+  let voiceInfo =
+    null;
+
+  let connectionState =
+    null;
+
+  const render =
+    () => {
 
       // Clear any previous state-* class.
 
@@ -159,9 +193,26 @@ export function mountVoiceIndicator() {
         }
       );
 
+      // Connection issues override voice state. 'connected' (or
+      // null) means no override — fall back to voice.
+
+      const usingConnection =
+        connectionState &&
+        connectionState !== 'connected';
+
+      const effectiveState =
+        usingConnection
+          ? connectionState
+          : voiceState;
+
+      const effectiveInfo =
+        usingConnection
+          ? null
+          : voiceInfo;
+
       if (
-        !state ||
-        state === 'idle'
+        !effectiveState ||
+        effectiveState === 'idle'
       ) {
 
         root.classList.remove('is-visible');
@@ -173,23 +224,43 @@ export function mountVoiceIndicator() {
 
       }
 
-      root.classList.add(`state-${state}`);
+      root.classList.add(`state-${effectiveState}`);
 
       root.classList.add('is-visible');
 
-      // Allow callers to override the text for the 'error' state
-      // (e.g., "Mic unavailable", "Backend unreachable").
-
       const customMessage =
-        info &&
-        typeof info.message === 'string'
-          ? info.message
+        effectiveInfo &&
+        typeof effectiveInfo.message === 'string'
+          ? effectiveInfo.message
           : null;
 
       label.textContent =
         customMessage ||
-        STATE_LABELS[state] ||
+        STATE_LABELS[effectiveState] ||
         '';
+
+    };
+
+  const setState =
+    (state, info) => {
+
+      voiceState =
+        state;
+
+      voiceInfo =
+        info;
+
+      render();
+
+    };
+
+  const setConnectionState =
+    (state) => {
+
+      connectionState =
+        state;
+
+      render();
 
     };
 
@@ -206,6 +277,7 @@ export function mountVoiceIndicator() {
 
   return {
     setState,
+    setConnectionState,
     destroy,
   };
 
