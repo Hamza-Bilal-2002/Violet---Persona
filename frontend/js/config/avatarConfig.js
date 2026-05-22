@@ -206,7 +206,7 @@ export const AVATAR_CONFIG = {
       280,
 
     widthMax:
-      420,
+      320,
 
     heightFraction:
       0.7,
@@ -215,13 +215,13 @@ export const AVATAR_CONFIG = {
       420,
 
     heightMax:
-      680,
+      480,
 
     marginRight:
       24,
 
     marginBottom:
-      16,
+      10,
 
   },
 

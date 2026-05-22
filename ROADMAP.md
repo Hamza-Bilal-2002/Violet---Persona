@@ -36,7 +36,7 @@ The two changes go together because removing the text input makes click-through 
 ## Phase 4 — Polish
 
 - **Swap browser TTS → Piper** container. Big quality jump in voice. Activates the audio-driven `LipSyncManager.attachAudio()` path that's already built — no further lip-sync code change required.
-- **Opacity-on-hover**: cursor approaches the avatar → fade material opacity ~30% so it never feels like a popup blocking work.
+- **Opacity-on-hover**: cursor approaches the avatar → fade material opacity ~30% so it never feels like a popup blocking work, can be disabled from the tray menu.
 - **Conversation persistence**: SQLite-backed history so sessions survive restarts.
 - **RAG**: ChromaDB sibling container with personal docs/PDFs for factual recall.
 - **Reconnection polish**: exponential backoff, visible "reconnecting" state.
@@ -53,5 +53,11 @@ The two changes go together because removing the text input makes click-through 
 
 - Fullscreen click-through window (folded into Phase 2 — see above)
 - Cursor tracking across whole screen (folded into Phase 2)
+- update the eye tracking, if the cursor is really close to or ontop of the avatar's face (only face), gently reset the eyes back to default position. (polish phase)
 - Opacity-on-hover (Phase 4 polish)
 - Lip-sync improvements (after Phase 4 Piper swap — see Phase 4)
+- reminder for addition of more emotions and animations.
+- reducing the ammount of unclickable border around the model.
+- optamizing the processes whereever possible without sacrifizing any performance. following the best practises and not loading anything thats not needed.
+- when avatar is hidden, stop all animations to reduce work load.
+- add mtoon shaders or suggest better options for better model look. (phase 4).
