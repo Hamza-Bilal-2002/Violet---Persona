@@ -370,88 +370,104 @@ export class LookAtManager {
 
       if (this.enabled) {
 
-        // Phase 2.A: derive desired yaw/pitch from the WORLD-space
-        // direction between the head bone and the lookAt target,
-        // transformed into the head bone's parent's local frame.
-        // This works regardless of where the avatar lives on the
-        // screen — the eyes and head share a single source of truth
-        // (the target position), instead of the head reading window
-        // NDC and the eyes reading world coordinates.
+        // Phase 2.A v2: compute desired yaw/pitch in the HEAD bone's
+        // OWN local frame at REST. The previous attempt used the
+        // parent's local frame, which depends on whatever rest
+        // rotation the model author baked into the neck — many
+        // VRMs have non-identity neck rest poses that mirror or
+        // rotate the yaw/pitch axes, producing the "quadrants
+        // inverted" symptom.
+        //
+        // Approach:
+        //   1. Temporarily set headBone.quaternion to its REST value
+        //   2. Update world matrices so the head's world transform
+        //      reflects the rest pose
+        //   3. Use headBone.worldToLocal(targetWorld) — this returns
+        //      the target's position in the head's local frame at
+        //      rest, where +Z is forward (the direction the face
+        //      points by VRM convention).
+        //   4. Restore the head's previous quaternion (we'll replace
+        //      it below with rest*offset anyway, but be defensive).
+        //
+        // In the head-local rest frame:
+        //   - target.z > 0 means target is in front of the face
+        //   - target.x > 0 means target is to the avatar's left
+        //   - target.y > 0 means target is above the head
 
-        const headParent =
-          this.headBone.parent;
-
-        if (headParent) {
-
-          // Make sure the head parent's world matrix is current
-          // for the conversion. vrm.update has already run this
-          // frame, but the lerped target.position was just updated
-          // above — its world matrix is also stale relative to
-          // this frame's reads, but for a parented Object3D in the
-          // scene, world position == local position relative to the
-          // scene root, and we only need the head parent's matrix.
-
-          headParent.updateWorldMatrix(
-            true,
-            false
+        const savedQuat =
+          this._tmpQuat.copy(
+            this.headBone.quaternion
           );
 
-          // Convert the target world position into the head bone's
-          // parent's local space. `worldToLocal` MUTATES its
-          // argument, so we copy the target position into a scratch
-          // vector first.
+        this.headBone.quaternion.copy(
+          this._headRestQuat
+        );
 
-          const localTarget =
-            this._scratchVecB.copy(
-              this.target.position
-            );
+        this.headBone.updateWorldMatrix(
+          true,
+          false
+        );
 
-          headParent.worldToLocal(
-            localTarget
+        const localTarget =
+          this._scratchVecB.copy(
+            this.target.position
           );
 
-          // Direction from the head bone to the target, in the
-          // parent's local frame. The head bone's local position
-          // is already expressed in this same frame.
+        this.headBone.worldToLocal(
+          localTarget
+        );
 
-          const localDir =
-            this._scratchVecA
-              .copy(localTarget)
-              .sub(this.headBone.position);
+        // restore (the apply step below will overwrite this anyway)
 
-          // Yaw around the parent's local Y axis (left/right turn).
-          // Pitch around X is negated because positive pitch (look
-          // up) corresponds to a negative Y-direction sign when we
-          // project onto the XZ plane.
+        this.headBone.quaternion.copy(
+          savedQuat
+        );
 
-          const desiredYaw =
-            Math.atan2(localDir.x, localDir.z);
+        // Yaw around the head's local Y axis. atan2(x, z) returns 0
+        // when target is dead-ahead (+Z), positive when target is on
+        // the +X side (avatar's left), negative when on -X side.
+        //
+        // Pitch around the head's local X axis. We project onto the
+        // XZ plane and measure the elevation. atan2(y, horiz) is
+        // positive when target is above; we want positive pitch to
+        // mean "look up" in our YXZ Euler, which on a typical VRM
+        // head bone is a positive X rotation -> we keep the sign.
 
-          const horizLen =
-            Math.sqrt(
-              localDir.x * localDir.x +
-              localDir.z * localDir.z
-            );
+        const dx =
+          localTarget.x;
 
-          const desiredPitch =
-            -Math.atan2(localDir.y, horizLen);
+        const dy =
+          localTarget.y;
 
-          // Clamp to the configured limits so extreme cursor
-          // positions don't snap the neck.
+        const dz =
+          localTarget.z;
 
-          this._desiredYaw =
-            Math.max(
-              -this.maxYawRad,
-              Math.min(this.maxYawRad, desiredYaw)
-            );
+        const horizLen =
+          Math.sqrt(
+            dx * dx +
+            dz * dz
+          );
 
-          this._desiredPitch =
-            Math.max(
-              -this.maxPitchRad,
-              Math.min(this.maxPitchRad, desiredPitch)
-            );
+        const desiredYaw =
+          Math.atan2(dx, dz);
 
-        }
+        const desiredPitch =
+          Math.atan2(dy, horizLen);
+
+        // Clamp to the configured limits so extreme cursor
+        // positions don't snap the neck.
+
+        this._desiredYaw =
+          Math.max(
+            -this.maxYawRad,
+            Math.min(this.maxYawRad, desiredYaw)
+          );
+
+        this._desiredPitch =
+          Math.max(
+            -this.maxPitchRad,
+            Math.min(this.maxPitchRad, desiredPitch)
+          );
 
         this._currentHeadYaw +=
           (this._desiredYaw - this._currentHeadYaw) *
