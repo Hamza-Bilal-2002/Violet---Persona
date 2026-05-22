@@ -31,8 +31,6 @@ canvas {
 
 /* Interactive UI overlays must explicitly opt out of the drag region or
    they become un-clickable on Windows when they overlap it. */
-#persona-chat,
-#persona-chat *,
 #loading-screen,
 .lil-gui,
 .lil-gui * {

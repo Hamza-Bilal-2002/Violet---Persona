@@ -31,9 +31,6 @@ from '../tests/testDialogue.js';
 import { BackendClient }
 from '../backend/BackendClient.js';
 
-import { mountChatInput }
-from '../ui/chatInput.js';
-
 import { mountVoiceIndicator }
 from '../ui/voiceIndicator.js';
 
@@ -333,21 +330,16 @@ export class AvatarRuntime {
     this.autoBlink();
 
     // ======================
-    // BACKEND + CHAT UI
+    // BACKEND
     // ======================
-
-    this.chatInput =
-      mountChatInput({
-
-        onSend: (text) => {
-
-          this.backendClient.send(
-            text
-          );
-
-        }
-
-      });
+    //
+    // The chat-input UI was removed in Phase 2.B Wave 2 — voice is
+    // the only input path now (VoiceFlow → backendClient.send).
+    // The ENABLE_TEST_DIALOGUE flag below still provides an offline
+    // dev fallback that enqueues directly into dialogueManager.
+    //
+    // BackendClient status is logged for now; the upcoming
+    // reconnection work will surface it through voiceIndicator.
 
     this.backendClient =
       new BackendClient({
@@ -360,8 +352,8 @@ export class AvatarRuntime {
 
         onStatusChange: (status) => {
 
-          this.chatInput.setStatus(
-            status
+          console.log(
+            `BackendClient status: ${status}`
           );
 
         },
@@ -585,7 +577,7 @@ export class AvatarRuntime {
 
       const uiHit =
         elAtPoint.closest(
-          '.lil-gui, #persona-chat'
+          '.lil-gui'
         );
 
       if (uiHit) {
