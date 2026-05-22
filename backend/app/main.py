@@ -22,7 +22,7 @@ from .llm import client as llm_client
 from .protocol import parse_reply
 
 
-app = FastAPI(title="Persona Avatar Backend", version="0.1.0")
+app = FastAPI(title=f"{settings.agent_name} Avatar Backend", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -35,7 +35,7 @@ app.add_middleware(
 
 @app.get("/")
 async def root():
-    return {"name": "persona-backend", "version": "0.1.0"}
+    return {"name": f"{settings.agent_name.lower()}-backend", "version": "0.1.0"}
 
 
 @app.get("/health")
@@ -87,7 +87,7 @@ async def chat_ws(websocket: WebSocket):
 
             parsed = parse_reply(raw_reply)
             logger.info(
-                f"persona ({parsed.emotion_name}@{parsed.emotion_intensity:.2f}, "
+                f"{settings.agent_name} ({parsed.emotion_name}@{parsed.emotion_intensity:.2f}, "
                 f"{parsed.animation}): {parsed.text}"
             )
 

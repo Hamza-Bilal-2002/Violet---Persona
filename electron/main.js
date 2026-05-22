@@ -23,6 +23,30 @@ const {
 const path
   = require('path');
 
+// Single source of truth for the agent identity. Same file the
+// backend and frontend read from. Change her name there once;
+// tooltip, log prefixes, and the renderer pick it up on next start.
+
+let agentConfig
+  = { name: 'Violet', userName: 'Hamza' };
+
+try {
+
+  agentConfig
+    = require('../config/agent.json');
+
+} catch (e) {
+
+  console.warn(
+    '[shell] failed to load config/agent.json — using defaults:',
+    e.message
+  );
+
+}
+
+const AGENT_NAME
+  = agentConfig.name || 'Violet';
+
 // ----------------------------------------------------------------------
 // Pre-ready switches.
 //
@@ -200,7 +224,7 @@ function createWindow() {
     () => {
 
       console.log(
-        '[persona-shell] ready-to-show fired (window remains hidden — waiting for persona:ready IPC)'
+        '[shell] ready-to-show fired (window remains hidden — waiting for persona:ready IPC)'
       );
 
     }
@@ -363,7 +387,7 @@ function createTray() {
   tray
     = new Tray(TRAY_ICON_PATH);
 
-  tray.setToolTip('Persona');
+  tray.setToolTip(AGENT_NAME);
 
   rebuildTrayMenu();
 
@@ -434,7 +458,7 @@ ipcMain.on(
     }
 
     console.log(
-      '[persona-shell] persona:ready received — revealing window'
+      '[shell] persona:ready received — revealing window'
     );
 
     mainWindow.show();

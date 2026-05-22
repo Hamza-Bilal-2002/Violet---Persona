@@ -18,6 +18,10 @@ services:
     volumes:
       # mount source for live reload during dev. remove for prod.
       - ./backend:/app
+      # single source of truth for agent identity (name, personality,
+      # user-facing strings). read-only so the backend treats it as
+      # immutable config, not data.
+      - ./config:/app/config:ro
     restart: unless-stopped
     networks:
       - persona_net

@@ -10,6 +10,9 @@
  *   input.setStatus('connecting');  // 'disconnected' | 'connecting' | 'connected' | 'error'
  */
 
+import { AGENT_NAME }
+from '../config/agentConfig.js';
+
 export function mountChatInput({ onSend }) {
 
   // ======================
@@ -99,7 +102,7 @@ export function mountChatInput({ onSend }) {
     document.createElement('input');
 
   input.type = 'text';
-  input.placeholder = 'Talk to Persona...';
+  input.placeholder = `Talk to ${AGENT_NAME}...`;
   input.autocomplete = 'off';
 
   const button =
