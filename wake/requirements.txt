@@ -1,0 +1,6 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+openwakeword==0.6.0
+onnxruntime==1.19.2
+numpy==1.26.4
+loguru==0.7.2

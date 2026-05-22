@@ -49,6 +49,26 @@ services:
     networks:
       - persona_net
 
+  # Phase 2.B Wave 2 — wake-word sibling. openwakeword ONNX models
+  # run on CPU. The renderer streams 16 kHz mono Int16 PCM into the
+  # /ws endpoint continuously; the container emits a JSON event
+  # whenever a keyword scores above the detection threshold. Picovoice
+  # Porcupine would have been the obvious pick but their personal-
+  # account access went away in late 2024.
+  wake:
+    build:
+      context: ./wake
+      dockerfile: Dockerfile
+    container_name: persona_wake
+    ports:
+      - "8003:8003"
+    volumes:
+      # live reload during dev. remove for prod.
+      - ./wake:/app
+    restart: unless-stopped
+    networks:
+      - persona_net
+
 networks:
   persona_net:
     driver: bridge
