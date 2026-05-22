@@ -22,6 +22,9 @@ from './AvatarRuntime.js';
 import { startUpdateLoop }
 from './updateLoop.js';
 
+import { AVATAR_CONFIG }
+from '../config/avatarConfig.js';
+
 export class RuntimeController {
 
   constructor() {
@@ -243,29 +246,26 @@ export class RuntimeController {
 
   getAvatarViewport(canvasW, canvasH) {
 
+    const v =
+      AVATAR_CONFIG.viewport;
+
     const idealW =
       Math.min(
-        420,
-        Math.max(280, canvasW * 0.22)
+        v.widthMax,
+        Math.max(v.widthMin, canvasW * v.widthFraction)
       );
 
     const idealH =
       Math.min(
-        680,
-        Math.max(420, canvasH * 0.7)
+        v.heightMax,
+        Math.max(v.heightMin, canvasH * v.heightFraction)
       );
-
-    const marginX =
-      24;
-
-    const marginY =
-      16;
 
     return {
       x:
-        canvasW - idealW - marginX,
+        canvasW - idealW - v.marginRight,
       y:
-        marginY,
+        v.marginBottom,
       width:
         idealW,
       height:

@@ -177,4 +177,52 @@ export const AVATAR_CONFIG = {
 
   },
 
+  // ======================
+  // VIEWPORT (bottom-right overlay)
+  // ======================
+  //
+  // Where on the fullscreen canvas the avatar is rendered.
+  // Width / height are clamped to [min, max] but scaled by the
+  // canvas size in between, so the avatar shrinks gracefully on
+  // smaller displays and stays sane on huge ones.
+  //
+  // Margins are pixels from the right and bottom edges of the
+  // work area. Increase marginBottom to lift her higher above the
+  // taskbar. Increase marginRight to push her further from the
+  // right edge of the screen.
+  //
+  // widthFraction = avatar viewport width as a fraction of the
+  // total canvas width, clamped to [widthMin, widthMax].
+  // heightFraction = same for height vs canvas height.
+  //
+  // Tweak these and the change hot-reloads.
+
+  viewport: {
+
+    widthFraction:
+      0.22,
+
+    widthMin:
+      280,
+
+    widthMax:
+      420,
+
+    heightFraction:
+      0.7,
+
+    heightMin:
+      420,
+
+    heightMax:
+      680,
+
+    marginRight:
+      24,
+
+    marginBottom:
+      16,
+
+  },
+
 };
