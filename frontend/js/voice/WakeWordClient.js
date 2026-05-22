@@ -118,10 +118,29 @@ export class WakeWordClient {
           sampleRate: 16000,
         });
 
+      // Diagnostics: Chromium honors the requested sampleRate in
+      // most cases but some device configurations force a different
+      // rate. If actual !== 16000 the worklet will see wrong-rate
+      // audio and openwakeword scores will collapse to near zero.
+
+      console.log(
+        'WakeWordClient: AudioContext state=' + this._audioCtx.state +
+        ' sampleRate=' + this._audioCtx.sampleRate +
+        ' (requested 16000)'
+      );
+
       // ----- Load the worklet processor -----
+
+      console.log(
+        'WakeWordClient: loading worklet from ' + WORKLET_URL
+      );
 
       await this._audioCtx.audioWorklet
         .addModule(WORKLET_URL);
+
+      console.log(
+        'WakeWordClient: worklet loaded'
+      );
 
       // ----- Open the mic -----
       //
@@ -142,6 +161,43 @@ export class WakeWordClient {
               1,
           },
         });
+
+      // Diagnostics: which device + what settings the OS actually
+      // produced. A muted: true track or an unexpected device label
+      // (e.g. virtual driver) is the usual root cause of zero wake
+      // detections despite the rest of the chain looking healthy.
+
+      try {
+
+        const tracks =
+          this._stream.getAudioTracks();
+
+        console.log(
+          'WakeWordClient: audio tracks',
+          tracks.map((t) => ({
+            label:
+              t.label,
+            enabled:
+              t.enabled,
+            muted:
+              t.muted,
+            readyState:
+              t.readyState,
+            settings:
+              typeof t.getSettings === 'function'
+                ? t.getSettings()
+                : null,
+          }))
+        );
+
+      } catch (err) {
+
+        console.warn(
+          'WakeWordClient: track diagnostics threw',
+          err
+        );
+
+      }
 
       // ----- Wire the graph -----
 
@@ -168,6 +224,20 @@ export class WakeWordClient {
       this._connectWebSocket();
 
       // ----- Pipe frames out -----
+      //
+      // Periodically log a heartbeat with frames-sent + peak Int16
+      // amplitude observed across the last batch. Peak ~0 means the
+      // worklet is seeing silence (wrong device, muted, etc.); peak
+      // in the thousands or higher means real audio is flowing.
+
+      this._framesSent =
+        0;
+
+      this._batchFrameCount =
+        0;
+
+      this._batchPeakAmp =
+        0;
 
       this._workletNode.port.onmessage =
         (event) => {
@@ -177,7 +247,61 @@ export class WakeWordClient {
             this._ws.readyState === WebSocket.OPEN
           ) {
 
-            this._ws.send(event.data);
+            const buf =
+              event.data;
+
+            // Peek peak amplitude before transferring. We read the
+            // view first, send the buffer second — transferable
+            // semantics make the local view unusable after send.
+
+            try {
+
+              const view =
+                new Int16Array(buf);
+
+              let peak =
+                0;
+
+              for (let i = 0; i < view.length; i++) {
+
+                const a =
+                  Math.abs(view[i]);
+
+                if (a > peak) {
+                  peak = a;
+                }
+
+              }
+
+              if (peak > this._batchPeakAmp) {
+                this._batchPeakAmp = peak;
+              }
+
+              this._batchFrameCount += 1;
+
+              this._framesSent += 1;
+
+              if (this._batchFrameCount >= 50) {
+
+                console.log(
+                  `WakeWordClient: streaming — ` +
+                  `frames=${this._framesSent} ` +
+                  `batchPeak=${this._batchPeakAmp} ` +
+                  `(0=silence, 32767=clipping)`
+                );
+
+                this._batchFrameCount = 0;
+
+                this._batchPeakAmp = 0;
+
+              }
+
+            } catch (err) {
+
+              // never let diagnostics break the audio path
+            }
+
+            this._ws.send(buf);
 
           }
 

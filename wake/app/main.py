@@ -115,6 +115,15 @@ async def wake_ws(websocket: WebSocket):
 
     logger.info("wake client connected")
 
+    # Diagnostics: periodically log frames-received + max score seen
+    # in the batch even when nothing crossed the threshold. Helps
+    # disambiguate "no audio arriving" from "audio arriving but model
+    # is scoring near zero" (e.g. wrong sample rate).
+
+    batch_frames = 0
+    batch_max_score = 0.0
+    DIAGNOSTIC_BATCH = 50  # 50 frames * 80 ms = 4 s
+
     try:
 
         while True:
@@ -144,6 +153,26 @@ async def wake_ws(websocket: WebSocket):
             audio = np.frombuffer(payload, dtype=np.int16)
 
             scores = model.predict(audio)
+
+            # Track the highest score seen this batch for diagnostics.
+
+            for _keyword, score in scores.items():
+
+                if score > batch_max_score:
+                    batch_max_score = score
+
+            batch_frames += 1
+
+            if batch_frames >= DIAGNOSTIC_BATCH:
+
+                logger.info(
+                    f"wake heartbeat: frames={batch_frames} "
+                    f"max_score={batch_max_score:.4f} "
+                    f"(threshold={DETECTION_THRESHOLD})"
+                )
+
+                batch_frames = 0
+                batch_max_score = 0.0
 
             for keyword, score in scores.items():
 

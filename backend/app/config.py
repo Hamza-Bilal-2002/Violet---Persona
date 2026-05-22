@@ -43,7 +43,14 @@ AGENT = _load_agent_config()
 
 class Settings(BaseSettings):
     GEMINI_API_KEY: str = ""
-    GEMINI_MODEL: str = "gemini-2.5-flash"
+
+    # gemini-2.5-flash-lite is the free-tier-friendly default:
+    # ~15 RPM / 1000 RPD vs. flash's 5 RPM / 25 RPD. Quality is
+    # nearly identical for short conversational replies, which is
+    # all this agent emits. Override with GEMINI_MODEL in .env to
+    # use the heavier model on a paid tier.
+    GEMINI_MODEL: str = "gemini-2.5-flash-lite"
+
     LOG_LEVEL: str = "INFO"
     ALLOWED_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
 
