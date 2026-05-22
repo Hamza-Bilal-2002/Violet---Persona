@@ -136,7 +136,11 @@ export class VoiceFlow {
     shell.onPushToTalk(
       () => {
 
-        this._onPushToTalk();
+        // Route PTT through trigger() (not _onPushToTalk) so both
+        // wake and PTT paths share the same show-overlay-then-listen
+        // entry.
+
+        this.trigger();
 
       }
     );
@@ -183,8 +187,23 @@ export class VoiceFlow {
   // Public entry point shared by every input trigger (Ctrl+Alt+V
   // shortcut today, wake-word detection in Wave 2). All trigger
   // sources call this and the state machine takes it from there.
+  //
+  // If the overlay is hidden when input arrives, surface it first
+  // so the user actually sees the listening / speaking feedback.
+  // show() is idempotent on the shell side — calling while visible
+  // is a no-op.
 
   trigger() {
+
+    if (
+      typeof window !== 'undefined' &&
+      window.personaShell &&
+      typeof window.personaShell.show === 'function'
+    ) {
+
+      window.personaShell.show();
+
+    }
 
     this._onPushToTalk();
 

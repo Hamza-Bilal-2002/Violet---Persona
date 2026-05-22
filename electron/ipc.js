@@ -24,6 +24,32 @@ function registerIpcHandlers() {
     }
   );
 
+  // Renderer asks the shell to show its window. Fired from
+  // VoiceFlow.trigger() whenever a voice input arrives (wake word
+  // or PTT) — if the user hid the overlay, talking should bring it
+  // back so the user sees the listening / speaking indicators and
+  // the avatar. show() is idempotent, so calling while visible is
+  // a no-op.
+
+  ipcMain.on(
+    'persona:show',
+    () => {
+
+      const mainWindow = getMainWindow();
+      if (!mainWindow) {
+        return;
+      }
+
+      mainWindow.show();
+
+      // Some Windows compositor states reset z-order on first
+      // paint after a hide/show cycle. Re-assert top.
+
+      mainWindow.setAlwaysOnTop(true, 'screen-saver');
+
+    }
+  );
+
   // Dynamic click-through toggle. The renderer raycasts the cursor
   // against the avatar each frame and flips this when the cursor
   // enters/leaves the mesh. `forward: true` stays on both states

@@ -32,6 +32,16 @@ contextBridge.exposeInMainWorld(
 
     },
 
+    // Show the window (idempotent). Called by VoiceFlow.trigger so
+    // a voice input — wake word or PTT — brings a hidden overlay
+    // back into view automatically.
+
+    show: () => {
+
+      ipcRenderer.send('persona:show');
+
+    },
+
     // Tell the main process the renderer is done loading and the
     // window can now be shown. Called once by AvatarRuntime after
     // the VRM + animations are ready. Prevents the user from ever
