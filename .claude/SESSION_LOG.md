@@ -11,6 +11,50 @@ re-explain it.
 
 ## Where we left off (latest first)
 
+### 2026-05-23 — Wave 2 polish + bootstrap; ready for Phase 3
+
+**Status:** Phase 2 fully closed and the launch experience is now
+hands-off. Wake word fires, mic captures, Gemini replies — all
+without manual setup steps. Phase 3 (PC task automation) is the
+next active phase.
+
+**Polish landed today:**
+
+- **Show-on-trigger** — both wake and PTT route through
+  `VoiceFlow.trigger()` which asks the shell to show the window
+  before starting the listen cycle. New `persona:show` IPC. So
+  hiding the overlay via tray no longer mutes the voice path.
+- **Gemini free-tier model swap** — default `GEMINI_MODEL` →
+  `gemini-2.5-flash-lite` (15 RPM / 1000 RPD vs flash's 5 / 25).
+  Override via `backend/.env` for paid tiers.
+- **Wake-word diagnostics** — client logs actual AudioContext
+  sample rate, audio track info, frame heartbeat + peak Int16
+  amplitude; server logs heartbeat batch with max score seen.
+  Kept in, paid for themselves once already.
+- **Wake model swap** — `hey_jarvis` → `alexa`. Easier to say.
+  Pure config change, no rebuild (both models pre-baked in image).
+- **Docker auto-start** — `electron/dockerCompose.js` runs
+  `docker compose up -d` on app launch, fire-and-forget. Requires
+  Docker Desktop running; the renderer's reconnect logic forgives
+  bootstrap-order races.
+- **Wake on by default** — `tray.js` defaults `wakeWordEnabled =
+  true`, `ipc.js` sends the initial toggle when `persona:ready`
+  fires (the "everything else is up" moment). Manual toggle off
+  still works for privacy moments.
+
+**Known follow-ups (not blocking):**
+
+- **Custom "Violet" wake keyword** still TBD. `alexa` is the
+  current placeholder.
+- **WO Mic / Windows default device** — both PTT and wake follow
+  the system default mic. If the default flips to a virtual driver
+  (WO Mic), they'll listen there.
+- **Docker Desktop launch-at-login** — user-side setting; flag in
+  the launch instructions until we ship a packaged installer that
+  prompts for it.
+
+---
+
 ### 2026-05-22 (evening) — Phase 2.B Wave 2 done → Phase 2 closed
 
 **Status:** Phase 2 fully closed. The product now has push-to-talk,
