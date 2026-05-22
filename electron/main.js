@@ -17,6 +17,10 @@ const { app, BrowserWindow } = require('electron');
 const { createWindow } = require('./window');
 const { createTray } = require('./tray');
 const { registerIpcHandlers } = require('./ipc');
+const {
+  registerGlobalShortcuts,
+  unregisterAllGlobalShortcuts,
+} = require('./globalShortcut');
 
 // ----------------------------------------------------------------------
 // Pre-ready switches.
@@ -41,8 +45,21 @@ app.whenReady().then(() => {
   createWindow();
   createTray();
   registerIpcHandlers();
+  registerGlobalShortcuts();
 
 });
+
+// Drop OS-level shortcut bindings before the process exits so we
+// don't leak the Ctrl+Alt+V hook into the user's session.
+
+app.on(
+  'will-quit',
+  () => {
+
+    unregisterAllGlobalShortcuts();
+
+  }
+);
 
 // Background process: do NOT quit when the window closes. Only the
 // tray "Quit" item terminates Persona.

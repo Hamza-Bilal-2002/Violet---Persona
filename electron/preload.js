@@ -83,5 +83,24 @@ contextBridge.exposeInMainWorld(
 
     },
 
+    // Phase 2.B Wave 1: subscribe the renderer to push-to-talk
+    // trigger events. The shell registers a global Ctrl+Alt+V
+    // shortcut (see electron/globalShortcut.js) and forwards each
+    // press here. The callback takes no args — it's a pure trigger.
+    // VoiceFlow registers exactly one listener at runtime startup.
+
+    onPushToTalk: (callback) => {
+
+      ipcRenderer.on(
+        'persona:push-to-talk',
+        () => {
+
+          callback();
+
+        }
+      );
+
+    },
+
   }
 );

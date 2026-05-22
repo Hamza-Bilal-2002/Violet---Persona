@@ -34,6 +34,12 @@ from '../backend/BackendClient.js';
 import { mountChatInput }
 from '../ui/chatInput.js';
 
+import { mountVoiceIndicator }
+from '../ui/voiceIndicator.js';
+
+import { VoiceFlow }
+from '../voice/VoiceFlow.js';
+
 // Backend wiring config. When the backend container is running
 // (docker compose up), the WebSocket at this URL drives dialogue.
 // If the connection fails, the offline test dialogue still runs
@@ -41,6 +47,13 @@ from '../ui/chatInput.js';
 
 const BACKEND_WS_URL =
   'ws://localhost:8000/chat/ws';
+
+// Phase 2.B Wave 1: the speech container exposes /transcribe on
+// 8002. Hardcoded for now; configurable later when we ship a
+// settings surface.
+
+const SPEECH_TRANSCRIBE_URL =
+  'http://localhost:8002/transcribe';
 
 const ENABLE_TEST_DIALOGUE =
   false;
@@ -356,6 +369,50 @@ export class AvatarRuntime {
       });
 
     this.backendClient.connect();
+
+    // ======================
+    // VOICE FLOW (Phase 2.B Wave 1)
+    // ======================
+    //
+    // Push-to-talk pipeline. In the Electron shell the global
+    // Ctrl+Alt+V shortcut routes through here:
+    //   PTT -> MicCapture -> SpeechTranscriber -> backendClient.send
+    //
+    // The reply flows back through BackendClient -> DialogueManager
+    // (TTS + animation + lip-sync), so nothing downstream needs to
+    // change to give Violet a voice input path.
+    //
+    // In plain-browser dev mode there is no Electron preload, so
+    // VoiceFlow.start() no-ops and the chat input above stays the
+    // sole input.
+
+    this.voiceIndicator =
+      mountVoiceIndicator();
+
+    this.voiceFlow =
+      new VoiceFlow({
+
+        backendClient:
+          this.backendClient,
+
+        dialogueManager:
+          this.dialogueManager,
+
+        transcriberUrl:
+          SPEECH_TRANSCRIBE_URL,
+
+        onStateChange: (state, info) => {
+
+          this.voiceIndicator.setState(
+            state,
+            info
+          );
+
+        },
+
+      });
+
+    this.voiceFlow.start();
 
     // OFFLINE FALLBACK
     // useful when developing without the backend

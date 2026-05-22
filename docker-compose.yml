@@ -26,6 +26,25 @@ services:
     networks:
       - persona_net
 
+  # Phase 2.B — speech-to-text sibling. Whisper "tiny" int8 on CPU,
+  # wrapped behind a tiny FastAPI shim. The renderer's MediaRecorder
+  # POSTs WebM/Opus blobs to /transcribe and we hand the transcript
+  # to the api service via the existing /chat/ws path (in-renderer
+  # plumbing, not container-to-container — the api never sees us).
+  speech:
+    build:
+      context: ./speech
+      dockerfile: Dockerfile
+    container_name: persona_speech
+    ports:
+      - "8002:8002"
+    volumes:
+      # live reload during dev. remove for prod.
+      - ./speech:/app
+    restart: unless-stopped
+    networks:
+      - persona_net
+
 networks:
   persona_net:
     driver: bridge

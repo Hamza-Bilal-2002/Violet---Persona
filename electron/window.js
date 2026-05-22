@@ -79,6 +79,29 @@ function createWindow() {
 
   mainWindow.setIgnoreMouseEvents(true, { forward: true });
 
+  // Phase 2.B Wave 1: grant microphone permission proactively. The
+  // renderer's MediaRecorder will silently fail to open the mic if
+  // we don't auto-approve the permission request; there is no UI
+  // for the user to grant it in a transparent click-through window.
+  //
+  // Permission names changed between Electron versions: older
+  // releases use 'media', newer ones use 'microphone' specifically.
+  // Allow both so we work regardless of the installed Electron
+  // version. Everything else is denied to stay safe.
+
+  mainWindow.webContents.session.setPermissionRequestHandler(
+    (_webContents, permission, callback) => {
+
+      const allowed =
+        permission === 'media' ||
+        permission === 'microphone' ||
+        permission === 'audioCapture';
+
+      callback(allowed);
+
+    }
+  );
+
   if (IS_DEV) {
 
     mainWindow.loadURL(DEV_URL);
