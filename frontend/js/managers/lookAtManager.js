@@ -84,6 +84,20 @@ export class LookAtManager {
     this.sensitivityY =
       options.sensitivityY ?? 500;
 
+    // Lateral / vertical extent of the lookAt target's travel in
+    // WORLD UNITS when the cursor reaches its sensitivity limit.
+    // The target sits at `this.distance` in front of the head; at
+    // a given lateral offset L and depth D, the eye sees the
+    // target at angle atan2(L, D). For D=2.0 and L=0.8 that's
+    // ~22°, which puts a sweep across the VRM's typical eye range.
+    // Tune to taste.
+
+    this.lateralScale =
+      options.lateralScale ?? 0.8;
+
+    this.verticalScale =
+      options.verticalScale ?? 0.5;
+
     // ======================
     // STATE
     // ======================
@@ -416,20 +430,22 @@ export class LookAtManager {
 
     // ---- 2) BUILD WORLD-SPACE LOOKAT TARGET FOR EYES ----
     //
-    // Place the target a fixed distance in front of the head, in
-    // the direction defined by the same yaw/pitch we'll apply to
-    // the head bone. Eyes and head share one source of truth.
+    // Place the target at a fixed depth in front of the head, with
+    // lateral position driven directly by the (clamped) cursor
+    // offset. The target lives in world space and is NOT anchored
+    // to the head's current rotation — that was the previous bug:
+    // if the target sits exactly where the head is already pointing,
+    // the VRM eye applier sees target dead-ahead in head-local space
+    // and the eyes never deflect.
     //
-    // We use the head's CURRENT world position (post-vrm.update,
-    // which ran earlier this frame) plus a fixed world-space
-    // offset. No rest-quaternion swap, no localToWorld matrix
-    // dance — those caused per-frame floating-point error that
-    // showed up as eye jitter when the cursor was still.
+    // With the target in a flat world-XY plane in front of the head,
+    // the head tracks toward it AND the eyes see a target at a
+    // different angle than the current face direction, so they
+    // actually move.
     //
-    // Assumes the avatar's face direction at rest is world +Z
-    // (VRM convention with the model unrotated). Our scene
-    // satisfies this: avatar at origin, no parent rotation,
-    // camera at +Z looking at origin.
+    // Scales are tuned so the target sits comfortably within the
+    // VRM's eye range at typical cursor positions and saturates
+    // gracefully at the cursor offset limits.
 
     if (this.headBone) {
 
@@ -437,27 +453,15 @@ export class LookAtManager {
         this._scratchVecA
       );
 
-      const cy =
-        Math.cos(this._currentHeadYaw);
-
-      const sy =
-        Math.sin(this._currentHeadYaw);
-
-      const cp =
-        Math.cos(this._currentHeadPitch);
-
-      const sp =
-        Math.sin(this._currentHeadPitch);
-
       this._desiredPosition.set(
         this._scratchVecA.x +
-          sy * cp * this.distance,
+          nx * this.lateralScale,
 
         this._scratchVecA.y +
-          sp * this.distance,
+          ny * this.verticalScale,
 
         this._scratchVecA.z +
-          cy * cp * this.distance
+          this.distance
       );
 
     }
