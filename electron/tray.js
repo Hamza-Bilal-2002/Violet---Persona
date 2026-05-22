@@ -30,6 +30,7 @@ let tray = null;
 
 let debugGuiVisible = false;
 let devToolsOpen = false;
+let wakeWordEnabled = false;
 
 function rebuildTrayMenu() {
 
@@ -47,6 +48,26 @@ function rebuildTrayMenu() {
     },
 
     { type: 'separator' },
+
+    {
+      label: 'Wake Word',
+      type: 'checkbox',
+      checked: wakeWordEnabled,
+      click: (menuItem) => {
+
+        wakeWordEnabled = menuItem.checked;
+
+        if (mainWindow) {
+
+          mainWindow.webContents.send(
+            'persona:toggle-wake-word',
+            wakeWordEnabled
+          );
+
+        }
+
+      },
+    },
 
     {
       label: 'Debug GUI',

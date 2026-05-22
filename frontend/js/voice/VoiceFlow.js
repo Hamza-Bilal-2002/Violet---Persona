@@ -177,6 +177,20 @@ export class VoiceFlow {
   }
 
   // ======================
+  // EXTERNAL TRIGGER
+  // ======================
+  //
+  // Public entry point shared by every input trigger (Ctrl+Alt+V
+  // shortcut today, wake-word detection in Wave 2). All trigger
+  // sources call this and the state machine takes it from there.
+
+  trigger() {
+
+    this._onPushToTalk();
+
+  }
+
+  // ======================
   // PUSH TO TALK
   // ======================
 

@@ -37,6 +37,9 @@ from '../ui/voiceIndicator.js';
 import { VoiceFlow }
 from '../voice/VoiceFlow.js';
 
+import { WakeWordClient }
+from '../voice/WakeWordClient.js';
+
 // Backend wiring config. When the backend container is running
 // (docker compose up), the WebSocket at this URL drives dialogue.
 // If the connection fails, the offline test dialogue still runs
@@ -51,6 +54,13 @@ const BACKEND_WS_URL =
 
 const SPEECH_TRANSCRIBE_URL =
   'http://localhost:8002/transcribe';
+
+// Phase 2.B Wave 2: the wake container exposes a streaming WS at
+// 8003. Renderer pumps 16 kHz Int16 PCM frames continuously when
+// the user enables wake word from the tray.
+
+const WAKE_WS_URL =
+  'ws://localhost:8003/ws';
 
 const ENABLE_TEST_DIALOGUE =
   false;
@@ -415,6 +425,64 @@ export class AvatarRuntime {
       });
 
     this.voiceFlow.start();
+
+    // ======================
+    // WAKE WORD (Phase 2.B Wave 2)
+    // ======================
+    //
+    // Continuous mic listener streaming Int16 PCM to the wake
+    // container. On detection, fires the same listen cycle as PTT
+    // via voiceFlow.trigger().
+    //
+    // OFF by default — privacy posture. The user opts in via the
+    // tray "Wake Word" checkbox; the toggle handler below (re)
+    // start/stop the client. No personaShell on the browser dev
+    // path, so wake stays inert in plain-browser mode.
+
+    this.wakeWordClient =
+      new WakeWordClient({
+
+        url:
+          WAKE_WS_URL,
+
+        onWake: () => {
+
+          this.voiceFlow.trigger();
+
+        },
+
+      });
+
+    if (
+      window.personaShell &&
+      typeof window.personaShell.onWakeWordToggle === 'function'
+    ) {
+
+      window.personaShell.onWakeWordToggle(
+        (enabled) => {
+
+          if (enabled) {
+
+            this.wakeWordClient.start()
+              .catch((err) => {
+
+                console.error(
+                  'AvatarRuntime: wake-word start failed',
+                  err
+                );
+
+              });
+
+          } else {
+
+            this.wakeWordClient.stop();
+
+          }
+
+        }
+      );
+
+    }
 
     // OFFLINE FALLBACK
     // useful when developing without the backend

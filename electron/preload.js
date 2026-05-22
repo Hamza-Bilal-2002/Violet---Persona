@@ -102,5 +102,23 @@ contextBridge.exposeInMainWorld(
 
     },
 
+    // Phase 2.B Wave 2: subscribe to wake-word on/off toggle from
+    // the tray menu. callback receives a boolean — true to start
+    // the continuous wake listener, false to stop it. The renderer
+    // owns the actual mic + WS lifecycle.
+
+    onWakeWordToggle: (callback) => {
+
+      ipcRenderer.on(
+        'persona:toggle-wake-word',
+        (_event, enabled) => {
+
+          callback(enabled);
+
+        }
+      );
+
+    },
+
   }
 );
