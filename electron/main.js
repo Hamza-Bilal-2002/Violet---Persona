@@ -21,6 +21,7 @@ const {
   registerGlobalShortcuts,
   unregisterAllGlobalShortcuts,
 } = require('./globalShortcut');
+const { startBackendContainers } = require('./dockerCompose');
 
 // ----------------------------------------------------------------------
 // Pre-ready switches.
@@ -41,6 +42,12 @@ app.commandLine.appendSwitch(
 // ----------------------------------------------------------------------
 
 app.whenReady().then(() => {
+
+  // Bring up the backend stack first, fire-and-forget. The renderer's
+  // BackendClient + WakeWordClient have their own reconnect logic, so
+  // they'll find the services whenever they come online.
+
+  startBackendContainers();
 
   createWindow();
   createTray();
