@@ -259,18 +259,61 @@ export class LookAtManager {
     this._scratchVecB =
       new THREE.Vector3();
 
-    // One-time diagnostic. Helps us tell from the console
-    // which lookAt applier the model uses and confirms the
-    // head bone was found.
+    // One-time diagnostic. Confirms head + eye bones were found,
+    // which lookAt applier the model uses, and the VRM's eye range
+    // limits (which determine whether eye motion will be visible
+    // at all). If leftEye/rightEye are '(none)', the model has no
+    // eye bones and VRMLookAtBoneApplier will silently do nothing
+    // regardless of what we set the target to.
+
+    const leftEye =
+      (
+        vrm &&
+        vrm.humanoid &&
+        typeof vrm.humanoid.getRawBoneNode === 'function'
+      )
+        ? vrm.humanoid.getRawBoneNode('leftEye')
+        : null;
+
+    const rightEye =
+      (
+        vrm &&
+        vrm.humanoid &&
+        typeof vrm.humanoid.getRawBoneNode === 'function'
+      )
+        ? vrm.humanoid.getRawBoneNode('rightEye')
+        : null;
 
     console.info(
-      '[LookAt] head bone:',
+      '[LookAt] head:',
       this.headBone ? this.headBone.name : '(none)',
-      'lookAt applier:',
+      '| leftEye:',
+      leftEye ? leftEye.name : '(none)',
+      '| rightEye:',
+      rightEye ? rightEye.name : '(none)',
+      '| applier:',
       vrm && vrm.lookAt && vrm.lookAt.applier
         ? vrm.lookAt.applier.constructor.name
         : '(none)'
     );
+
+    if (
+      vrm &&
+      vrm.lookAt
+    ) {
+
+      console.info(
+        '[LookAt] vrm.lookAt config:',
+        {
+          autoUpdate: vrm.lookAt.autoUpdate,
+          rangeMapHorizontalInner: vrm.lookAt.rangeMapHorizontalInner,
+          rangeMapHorizontalOuter: vrm.lookAt.rangeMapHorizontalOuter,
+          rangeMapVerticalDown: vrm.lookAt.rangeMapVerticalDown,
+          rangeMapVerticalUp: vrm.lookAt.rangeMapVerticalUp,
+        }
+      );
+
+    }
 
     // ======================
     // INPUT
@@ -430,46 +473,64 @@ export class LookAtManager {
 
     // ---- 2) BUILD WORLD-SPACE LOOKAT TARGET FOR EYES ----
     //
-    // Place the target at a fixed depth in front of the head, with
-    // lateral position driven directly by the (clamped) cursor
-    // offset. The target lives in world space and is NOT anchored
-    // to the head's current rotation — that was the previous bug:
-    // if the target sits exactly where the head is already pointing,
-    // the VRM eye applier sees target dead-ahead in head-local space
-    // and the eyes never deflect.
-    //
-    // With the target in a flat world-XY plane in front of the head,
-    // the head tracks toward it AND the eyes see a target at a
-    // different angle than the current face direction, so they
-    // actually move.
-    //
-    // Scales are tuned so the target sits comfortably within the
-    // VRM's eye range at typical cursor positions and saturates
-    // gracefully at the cursor offset limits.
+    // Use the raycaster path that worked perfectly pre-fullscreen:
+    // project a virtual cursor NDC through the camera and place the
+    // target at a fixed distance along the resulting ray. The NDC
+    // we feed in is the AVATAR-RELATIVE cursor offset (nx, ny), so
+    // cursor at the avatar's center maps to NDC (0, 0) and the ray
+    // goes through the camera's lookAt point — placing the target
+    // near the avatar's body. As the cursor moves, the target
+    // sweeps in world space and the VRM eye applier picks up the
+    // direction change.
 
-    if (this.headBone) {
+    this._ndc.set(
+      nx,
+      ny
+    );
 
-      this.headBone.getWorldPosition(
-        this._scratchVecA
+    this._raycaster.setFromCamera(
+      this._ndc,
+      this.camera
+    );
+
+    this._desiredPosition
+      .copy(this._raycaster.ray.origin)
+      .add(
+
+        this._raycaster.ray.direction
+          .clone()
+          .multiplyScalar(this.distance)
+
       );
-
-      this._desiredPosition.set(
-        this._scratchVecA.x +
-          nx * this.lateralScale,
-
-        this._scratchVecA.y +
-          ny * this.verticalScale,
-
-        this._scratchVecA.z +
-          this.distance
-      );
-
-    }
 
     this.target.position.lerp(
       this._desiredPosition,
       alpha
     );
+
+    // Diagnostic — once every ~120 frames, log the target's
+    // current world position so we can confirm it's moving as the
+    // cursor moves. If this position is constant while the cursor
+    // moves across the screen, the NDC pipeline is broken. If it
+    // moves but the eyes don't, the issue is in the VRM eye applier
+    // (likely missing eye bones or a tiny range map).
+
+    if (
+      this._diagFrameCount &&
+      this._diagFrameCount % 240 === 0
+    ) {
+
+      console.debug(
+        '[LookAt] target world:',
+        this.target.position.x.toFixed(2),
+        this.target.position.y.toFixed(2),
+        this.target.position.z.toFixed(2),
+        '| cursor nx/ny:',
+        nx.toFixed(2),
+        ny.toFixed(2)
+      );
+
+    }
 
     // ---- 3) APPLY HEAD ROTATION ----
     //
