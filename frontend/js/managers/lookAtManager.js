@@ -165,17 +165,28 @@ export class LookAtManager {
 
     }
 
-    // Cache the head bone reference. Normalized humanoid gives
-    // us the rotation-canonical bone regardless of how the
-    // VRM was authored.
+    // Cache the head bone reference.
+    //
+    // We use the RAW bone, not the normalized one. Three-vrm
+    // propagates normalized -> raw inside vrm.update; our
+    // LookAtManager runs AFTER vrm.update (per updateLoop), so
+    // writes to the normalized head are dropped — there's no
+    // propagation pass left this frame. Writing directly to the
+    // raw bone is the only path that affects rendering this
+    // frame.
+    //
+    // Side effect: raw bones carry the model's authored rest
+    // rotation, so we can't just write Euler(yaw, pitch) — we
+    // must compose with the rest quaternion (captured at
+    // construction). See update() below.
 
     this.headBone =
       (
         vrm &&
         vrm.humanoid &&
-        typeof vrm.humanoid.getNormalizedBoneNode === 'function'
+        typeof vrm.humanoid.getRawBoneNode === 'function'
       )
-        ? vrm.humanoid.getNormalizedBoneNode('head')
+        ? vrm.humanoid.getRawBoneNode('head')
         : null;
 
     if (!this.headBone) {
@@ -185,6 +196,24 @@ export class LookAtManager {
       );
 
     }
+
+    // Capture the head's rest orientation. We multiply this with
+    // our cursor-driven offset quaternion each frame so the head
+    // ends up at "rest * offset" rather than overwriting the
+    // authored pose with raw Euler values.
+
+    this._headRestQuat =
+      this.headBone
+        ? this.headBone.quaternion.clone()
+        : null;
+
+    // Scratch quaternion + euler reused per-frame to avoid GC.
+
+    this._tmpEuler =
+      new THREE.Euler(0, 0, 0, 'YXZ');
+
+    this._tmpQuat =
+      new THREE.Quaternion();
 
     // One-time diagnostic. Helps us tell from the console
     // which lookAt applier the model uses and confirms the
@@ -316,9 +345,12 @@ export class LookAtManager {
       alpha
     );
 
-    // ---- head bone (direct rotation override when idle) ----
+    // ---- head bone (raw-bone rotation override when idle) ----
 
-    if (this.headBone) {
+    if (
+      this.headBone &&
+      this._headRestQuat
+    ) {
 
       if (this.enabled) {
 
@@ -330,18 +362,30 @@ export class LookAtManager {
           (this._desiredPitch - this._currentHeadPitch) *
           alpha;
 
+        // Compose: final = rest * offset.
         // YXZ keeps yaw (around Y) the outermost rotation, so
         // looking left/right behaves intuitively even when
-        // there is some pitch. Overwrites whatever the idle
-        // clip wrote — acceptable in v1; the small idle head
-        // sway loses to cursor tracking when idle.
+        // there is some pitch. The rest quaternion captures the
+        // model's authored head orientation; multiplying our
+        // cursor-derived offset on top keeps the head in a
+        // valid pose. Overwrites whatever the idle clip wrote —
+        // acceptable in v1; the small idle head sway loses to
+        // cursor tracking when idle.
 
-        this.headBone.rotation.set(
+        this._tmpEuler.set(
           this._currentHeadPitch,
           this._currentHeadYaw,
           0,
           'YXZ'
         );
+
+        this._tmpQuat.setFromEuler(
+          this._tmpEuler
+        );
+
+        this.headBone.quaternion
+          .copy(this._headRestQuat)
+          .multiply(this._tmpQuat);
 
         // throttled diagnostic. once every ~120 frames is
         // enough to confirm angles are sensible without
