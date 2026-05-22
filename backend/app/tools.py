@@ -25,11 +25,24 @@ import google.generativeai as genai
 OPEN_URL = genai.protos.FunctionDeclaration(
     name="open_url",
     description=(
-        "Open a URL in the user's default web browser. Use this when "
-        "the user asks to visit a website, open a search, or pull up "
-        "any web page. Only http:// and https:// URLs are accepted; "
-        "other schemes (file://, javascript:, etc.) are rejected by "
-        "the executor for safety."
+        "Open a URL in the user's default web browser. Use this "
+        "whenever the user asks to visit, pull up, launch, or go to "
+        "any website, search, video, channel, or article.\n\n"
+        "If the user names a site by brand or short name (e.g. "
+        "'twitch', 'github', 'reddit', 'twitter', 'amazon', 'gmail'), "
+        "you are responsible for constructing the canonical URL "
+        "yourself — do NOT ask the user for a full URL. Examples:\n"
+        "  twitch  -> https://twitch.tv\n"
+        "  github  -> https://github.com\n"
+        "  reddit  -> https://reddit.com\n"
+        "  gmail   -> https://mail.google.com\n"
+        "  youtube -> https://youtube.com\n\n"
+        "For 'open <site> <something>' (e.g. 'open github microsoft'), "
+        "navigate to the most likely page (https://github.com/microsoft). "
+        "When in doubt, prefer a working search URL on that site over "
+        "asking for clarification.\n\n"
+        "Only http:// and https:// URLs are accepted; other schemes "
+        "(file://, javascript:, etc.) are rejected by the executor."
     ),
     parameters=genai.protos.Schema(
         type=genai.protos.Type.OBJECT,
@@ -37,8 +50,9 @@ OPEN_URL = genai.protos.FunctionDeclaration(
             "url": genai.protos.Schema(
                 type=genai.protos.Type.STRING,
                 description=(
-                    "The full URL to open. Must start with http:// or "
-                    "https://. Example: https://youtube.com"
+                    "Full canonical URL starting with http:// or "
+                    "https://. The model constructs this from the "
+                    "user's request — never pass a bare brand name."
                 ),
             ),
         },
