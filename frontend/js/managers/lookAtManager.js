@@ -483,25 +483,52 @@ export class LookAtManager {
     // sweeps in world space and the VRM eye applier picks up the
     // direction change.
 
-    this._ndc.set(
-      nx,
-      ny
-    );
+    if (this.enabled) {
 
-    this._raycaster.setFromCamera(
-      this._ndc,
-      this.camera
-    );
+      // Idle state: target sweeps in world space along the camera
+      // ray for the avatar-relative cursor NDC. Eyes track it.
 
-    this._desiredPosition
-      .copy(this._raycaster.ray.origin)
-      .add(
-
-        this._raycaster.ray.direction
-          .clone()
-          .multiplyScalar(this.distance)
-
+      this._ndc.set(
+        nx,
+        ny
       );
+
+      this._raycaster.setFromCamera(
+        this._ndc,
+        this.camera
+      );
+
+      this._desiredPosition
+        .copy(this._raycaster.ray.origin)
+        .add(
+
+          this._raycaster.ray.direction
+            .clone()
+            .multiplyScalar(this.distance)
+
+        );
+
+    } else if (this.headBone) {
+
+      // Non-idle state: an animation owns the head, so the eyes
+      // should yield too. The desired target is a fixed point
+      // straight in front of the avatar (world +Z from the head)
+      // — the lerp below carries the actual target smoothly back
+      // there from wherever the cursor had it. When the animation
+      // ends and we flip back to enabled=true, the same lerp
+      // carries it smoothly back toward the cursor target.
+
+      this.headBone.getWorldPosition(
+        this._scratchVecA
+      );
+
+      this._desiredPosition.set(
+        this._scratchVecA.x,
+        this._scratchVecA.y,
+        this._scratchVecA.z + this.distance
+      );
+
+    }
 
     this.target.position.lerp(
       this._desiredPosition,
