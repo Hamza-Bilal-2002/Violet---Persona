@@ -122,7 +122,29 @@ export class SpeechTranscriber {
         ? data.text
         : '';
 
+    const backendError =
+      data && typeof data.error === 'string'
+        ? data.error
+        : null;
+
     if (!text) {
+
+      if (backendError) {
+
+        // Speech service replied 200 OK but model loading or
+        // transcription itself failed. Don't let it look like empty
+        // audio.
+
+        console.error(
+          'SpeechTranscriber: backend reported error:',
+          backendError
+        );
+
+        throw new Error(
+          `speech backend error: ${backendError}`
+        );
+
+      }
 
       console.warn(
         'SpeechTranscriber: empty transcript returned'

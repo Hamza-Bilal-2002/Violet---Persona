@@ -3,3 +3,7 @@ uvicorn[standard]==0.30.6
 python-multipart==0.0.12
 faster-whisper==1.0.3
 loguru==0.7.2
+# faster-whisper 1.0.3 imports `requests` in utils.py but doesn't
+# declare it; newer huggingface-hub no longer pulls it in
+# transitively, so /transcribe silently returns empty without it.
+requests==2.32.3

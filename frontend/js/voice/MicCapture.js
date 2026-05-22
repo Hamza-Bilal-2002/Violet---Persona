@@ -139,6 +139,42 @@ export class MicCapture {
     this._stream =
       stream;
 
+    // Diagnostics: which device + what the OS thinks of the track.
+    // A muted: true track is the giveaway that Chromium gave us a
+    // silenced stream (permission, OS privacy, or device disabled).
+
+    try {
+
+      const tracks =
+        stream.getAudioTracks();
+
+      console.log(
+        'MicCapture: audio tracks',
+        tracks.map((t) => ({
+          label:
+            t.label,
+          enabled:
+            t.enabled,
+          muted:
+            t.muted,
+          readyState:
+            t.readyState,
+          settings:
+            typeof t.getSettings === 'function'
+              ? t.getSettings()
+              : null,
+        }))
+      );
+
+    } catch (err) {
+
+      console.warn(
+        'MicCapture: track diagnostics threw',
+        err
+      );
+
+    }
+
     // Pick a MediaRecorder mimeType. Chrome and Electron prefer
     // webm/opus. We try the most-supported codec string first,
     // fall back to plain webm, then let the browser default.
@@ -285,6 +321,13 @@ export class MicCapture {
       this._audioCtx =
         new AudioCtx();
 
+      console.log(
+        'MicCapture: AudioContext state after construction =',
+        this._audioCtx.state,
+        'sampleRate =',
+        this._audioCtx.sampleRate
+      );
+
       const source =
         this._audioCtx
           .createMediaStreamSource(stream);
@@ -317,6 +360,12 @@ export class MicCapture {
 
     this._belowSince =
       null;
+
+    this._peakRms =
+      0;
+
+    this._tickCount =
+      0;
 
     // Recorder + VAD loop both start now. We use a short timeslice
     // (250ms) so onstop has a full payload immediately rather than
@@ -401,6 +450,15 @@ export class MicCapture {
         sumSquares / bufferLength
       );
 
+    if (rms > this._peakRms) {
+
+      this._peakRms =
+        rms;
+
+    }
+
+    this._tickCount += 1;
+
     const elapsed =
       performance.now() -
       this._startedAt;
@@ -439,7 +497,11 @@ export class MicCapture {
         // Silence has held long enough — wrap it up.
 
         console.log(
-          'MicCapture: silence detected, stopping'
+          'MicCapture: silence detected, stopping ' +
+          `(peakRms=${this._peakRms.toFixed(4)}, ` +
+          `threshold=${this.options.silenceThresholdRms}, ` +
+          `ticks=${this._tickCount}, ` +
+          `audioCtxState=${this._audioCtx ? this._audioCtx.state : 'null'})`
         );
 
         this._stopRecorder();
