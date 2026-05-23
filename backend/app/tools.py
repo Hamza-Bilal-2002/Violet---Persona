@@ -61,7 +61,48 @@ OPEN_URL = genai.protos.FunctionDeclaration(
 )
 
 
-TOOL_DECLARATIONS = [OPEN_URL]
+OPEN_APP = genai.protos.FunctionDeclaration(
+    name="open_app",
+    description=(
+        "Open a desktop application on the user's PC by name. Use "
+        "this when the user asks to launch, start, or open any app "
+        "installed on their machine — Spotify, Discord, Chrome, "
+        "VS Code, Steam, Notepad, etc.\n\n"
+        "Pass the common brand name; the executor resolves it via "
+        "the Windows App Paths registry and Store-app handlers (the "
+        "same lookup the Run dialog uses). Examples:\n"
+        "  Spotify -> spotify\n"
+        "  Discord -> discord\n"
+        "  Chrome  -> chrome\n"
+        "  VS Code -> code\n"
+        "  Notepad -> notepad\n"
+        "  Steam   -> steam\n\n"
+        "Disambiguation:\n"
+        "- If the user is asking for a WEBSITE or web service (e.g. "
+        "  'open YouTube', 'open Gmail', 'open Twitter'), use "
+        "  open_url instead — open_app is for desktop apps only.\n"
+        "- If both are plausible (e.g. 'open Spotify' could mean the "
+        "  desktop app or spotify.com), prefer open_app — the user "
+        "  usually wants the installed app for media/audio things."
+    ),
+    parameters=genai.protos.Schema(
+        type=genai.protos.Type.OBJECT,
+        properties={
+            "name": genai.protos.Schema(
+                type=genai.protos.Type.STRING,
+                description=(
+                    "App name — usually a single word or short "
+                    "phrase. Allowed characters: letters, digits, "
+                    "spaces, period, hyphen, underscore."
+                ),
+            ),
+        },
+        required=["name"],
+    ),
+)
+
+
+TOOL_DECLARATIONS = [OPEN_URL, OPEN_APP]
 
 
 # Single Tool wrapper passed to GenerativeModel(tools=[...]). One

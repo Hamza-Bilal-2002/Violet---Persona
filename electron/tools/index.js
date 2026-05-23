@@ -13,11 +13,15 @@
 //   3. Register it in REGISTRY below
 
 const openUrl = require('./openUrl');
+const openApp = require('./openApp');
 
 const REGISTRY = {
 
   open_url:
     openUrl,
+
+  open_app:
+    openApp,
 
 };
 
