@@ -64,6 +64,14 @@ TOOL_TIMEOUT_SECONDS = 30.0
 
 MAX_TOOL_ROUNDS = 5
 
+# Cap how many Content entries we keep in the chat session's
+# accumulated history. Each user turn typically adds 2-4 entries
+# (user msg, optional function_call, optional function_response,
+# assistant text). 60 entries ~ 15-30 turns, enough for any
+# practical session without bloating the token bill.
+
+MAX_HISTORY_ENTRIES = 60
+
 
 app = FastAPI(title=f"{settings.agent_name} Avatar Backend", version="0.1.0")
 
@@ -95,7 +103,23 @@ async def chat_ws(websocket: WebSocket):
     await websocket.accept()
     logger.info("client connected")
 
-    history: list[dict] = []
+    # One Gemini chat session per WebSocket. The session owns its
+    # full history — user messages, function_calls, function_responses,
+    # and assistant text — so multi-turn function-calling stays
+    # coherent. Rebuilding from a text-only history list per turn
+    # made the model forget that tools had been called, which
+    # produced "the site is already open" hallucinations on the
+    # second open-X request in a session.
+
+    try:
+        session = llm_client.create_session()
+    except Exception as e:
+        logger.exception("could not create Gemini chat session")
+        await websocket.send_text(
+            json.dumps({"type": "error", "message": f"LLM init failed: {e}"})
+        )
+        await websocket.close()
+        return
 
     try:
         while True:
@@ -109,7 +133,7 @@ async def chat_ws(websocket: WebSocket):
 
             try:
                 final_text = await _run_dialogue_turn(
-                    websocket, user_text, history
+                    websocket, session, user_text
                 )
             except Exception as e:
                 logger.exception("dialogue turn failed")
@@ -136,17 +160,7 @@ async def chat_ws(websocket: WebSocket):
 
             await websocket.send_text(json.dumps(parsed.to_dict()))
 
-            # We store the final text (with tags) in history so the
-            # model sees its own prior tag formatting. The
-            # intermediate function_call / function_response cycles
-            # are NOT preserved across turns — the summary text in
-            # the final reply is enough context for the next turn.
-
-            history.append({"role": "user", "content": user_text})
-            history.append({"role": "assistant", "content": final_text})
-
-            if len(history) > 20:
-                history = history[-20:]
+            session.trim_history(MAX_HISTORY_ENTRIES)
 
     except WebSocketDisconnect:
         logger.info("client disconnected")
@@ -168,16 +182,16 @@ def _parse_user_frame(raw: str) -> str:
 
 async def _run_dialogue_turn(
     websocket: WebSocket,
+    session,
     user_text: str,
-    history: list[dict],
 ) -> str:
     """Drive one user turn through Gemini, handling any tool calls.
 
     Returns the final text reply (with emotion/animation tags). The
-    caller writes it to the WS as a reply frame and updates history.
+    caller writes it to the WS as a reply frame. History accumulation
+    is handled by the session itself.
     """
 
-    session = llm_client.start_chat(history)
     response = session.send_user_message(user_text)
 
     for round_idx in range(MAX_TOOL_ROUNDS):

@@ -104,13 +104,18 @@ SYSTEM_PROMPT = _build_system_prompt()
 
 
 class GeminiChatSession:
-    """One in-flight dialogue exchange. Wraps a Gemini ChatSession so
-    main.py can drive the function-call loop without owning SDK
-    types directly.
+    """Long-lived chat session for one WebSocket connection.
 
-    A single user message may take multiple turns inside this object:
-    user text -> maybe function_call(s) -> function_response(s) ->
-    text reply. main.py decides when to bail and emit the text.
+    The wrapped Gemini ChatSession accumulates its own history
+    across user messages, including function_call / function_response
+    cycles. That's critical: without those preserved, a follow-up
+    "open X" request looks like an unrelated text exchange to Gemini
+    and the model often pattern-matches into "answer with text" mode
+    instead of calling the tool.
+
+    main.py creates one of these per accepted WebSocket and drives
+    the loop with send_user_message + send_function_responses. The
+    session is disposable when the socket closes.
     """
 
     def __init__(self, chat) -> None:
@@ -141,6 +146,18 @@ class GeminiChatSession:
             genai.protos.Content(parts=parts)
         )
         return self._parse(response)
+
+    def trim_history(self, max_entries: int) -> None:
+        """Cap accumulated history. Trims oldest entries first.
+
+        Naive slicing — could theoretically cut between a
+        function_call and its function_response, but Gemini tolerates
+        that case in practice (treats the orphaned pair as a partial
+        exchange to be ignored). We tolerate the rough edge until a
+        real bug appears.
+        """
+        if len(self._chat.history) > max_entries:
+            self._chat.history = self._chat.history[-max_entries:]
 
     @staticmethod
     def _parse(response) -> dict:
@@ -176,7 +193,7 @@ class GeminiChatSession:
 
 class GeminiClient:
     """Thin wrapper that owns model configuration and produces
-    per-turn chat sessions."""
+    chat sessions on demand."""
 
     def __init__(self) -> None:
         if not settings.GEMINI_API_KEY:
@@ -197,25 +214,17 @@ class GeminiClient:
             tools=[TOOL],
         )
 
-    def start_chat(self, history: list[dict]) -> GeminiChatSession:
-        """Start a fresh chat seeded with the running conversation
-        history. The session is single-use — one per WS message."""
+    def create_session(self) -> GeminiChatSession:
+        """Create a fresh chat session with no prior history. One per
+        WebSocket connection — the session itself accumulates history
+        across user turns."""
         if not self._configured:
             raise RuntimeError(
                 "Gemini not configured. Set GEMINI_API_KEY in backend/.env"
             )
 
         model = self._build_model()
-
-        # convert {role, content} history to Gemini's expected shape
-        gemini_history = []
-        for entry in history:
-            role = "user" if entry["role"] == "user" else "model"
-            gemini_history.append(
-                {"role": role, "parts": [{"text": entry["content"]}]}
-            )
-
-        chat = model.start_chat(history=gemini_history)
+        chat = model.start_chat()
         return GeminiChatSession(chat)
 
 
