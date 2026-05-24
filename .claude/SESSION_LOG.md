@@ -11,6 +11,55 @@ re-explain it.
 
 ## Where we left off (latest first)
 
+### 2026-05-24 (later) — Phase 3.2 closed; OpenAI swap verified in daily use
+
+**Status:** Wave 3.2 complete (all four PC tools landed). LLM
+provider swap to OpenAI gpt-4o-mini is verified end-to-end —
+the full chain works (chat, single tool call, deferred tool
+call, deferred-tool cancellation on new conversation). Next
+concrete unit of work is **Wave 3.3** (external services —
+Spotify, Calendar) or any polish item the user wants first.
+
+**What just shipped:**
+
+- `sleep_pc` — `rundll32 powrprof.dll,SetSuspendState 0,1,0`,
+  marked `deferred: true` so the avatar finishes speaking
+  before the machine suspends. Known Windows quirk: if
+  hibernation is enabled (`powercfg -h on`) the call may
+  hibernate instead of sleep; user can disable hibernation to
+  make sleep reliable.
+- LLM provider swap landed (Gemini → OpenAI gpt-4o-mini).
+  `openai==1.58.1` after a couple of pip-failure attempts
+  (1.55.0 had the httpx 0.28 proxies-kwarg bug, 1.59.0 may
+  not be published). `google-generativeai` removed entirely.
+  Memory updated: `backend-mvp-gemini-only` →
+  `backend-llm-provider`.
+
+**Tool registry currently:**
+  - open_url       (immediate)
+  - open_app       (immediate)
+  - system_volume  (immediate)
+  - lock_pc        (deferred)
+  - sleep_pc       (deferred)
+
+**Next on the roadmap:**
+
+- **Wave 3.3 — external services.** Spotify (URI scheme is
+  easiest first cut — `spotify:track:...`, `spotify:search:...`;
+  Web API for more depth later) and Calendar (Outlook COM
+  automation or Google Calendar API; both need a creds path).
+  Each integration is its own commit; OAuth flows need user
+  involvement so we'll plan that before starting.
+- Or polish items from ROADMAP open notes:
+  - Face-proximity eye reset
+  - Opacity-on-hover with tray toggle
+  - Custom "Violet" wake-word training
+  - Shrink unclickable border around the model
+  - Phase 4 polish: Piper TTS, SQLite persistence, RAG,
+    packaging
+
+---
+
 ### 2026-05-24 — Mid Phase 3.2; about to swap LLM provider Gemini → OpenAI
 
 **Status:** Phase 3 Wave 3.1 closed (tool-calling protocol +
