@@ -728,22 +728,13 @@ export class AvatarRuntime {
 
     }
 
-    // Phase 4 Wave 4.1: hybrid hit-test — bounding sphere as the
-    // cheap rejection, precise mesh raycast for the final answer.
-    //
-    // The sphere is intentionally conservative (covers the avatar's
-    // full silhouette plus a margin), so using it alone leaves a
-    // "dead" zone of unclickable space around the avatar where
-    // clicks should pass through to apps below. With the mesh
-    // raycast as the precise pass, the click-capture region matches
-    // the actual silhouette and gaps between body parts (e.g.,
-    // between arms and torso) pass clicks through.
-    //
-    // Perf: ray-mesh intersection on the VRM scene tree walks all
-    // visible triangles. The sphere reject cuts out the common
-    // case (cursor nowhere near the avatar) at O(1), so the mesh
-    // raycast only runs when the cursor is in the vicinity — a
-    // brief fraction of typical use.
+    // Bounding-sphere hit-test only. We tried adding a precise
+    // mesh raycast on top (Phase 4 Wave 4.1 2/3) but the per-frame
+    // cost while the cursor was over the avatar was visibly laggy.
+    // User decided the existing sphere coverage was good enough and
+    // not worth the perf tradeoff. If we revisit, the path forward
+    // is either throttling the mesh raycast to every Nth frame or
+    // pre-building a BVH for the VRM mesh.
 
     if (!this._avatarBoundingSphere) {
 
@@ -767,30 +758,9 @@ export class AvatarRuntime {
       this.camera
     );
 
-    // Cheap reject first.
-
-    if (
-      !this._hitRaycaster.ray.intersectsSphere(
-        this._avatarBoundingSphere
-      )
-    ) {
-
-      return false;
-
-    }
-
-    // Sphere hit — precise mesh raycast. Recursive flag walks every
-    // mesh under the VRM scene root. We don't need the intersect
-    // payloads, just whether anything was hit, so the cheapest exit
-    // is to check length > 0.
-
-    const hits =
-      this._hitRaycaster.intersectObject(
-        this.currentVRM.scene,
-        true
-      );
-
-    return hits.length > 0;
+    return this._hitRaycaster.ray.intersectsSphere(
+      this._avatarBoundingSphere
+    );
 
   }
 
