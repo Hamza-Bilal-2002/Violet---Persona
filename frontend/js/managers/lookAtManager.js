@@ -98,6 +98,24 @@ export class LookAtManager {
     this.verticalScale =
       options.verticalScale ?? 0.5;
 
+    // Phase 4 Wave 4.1: face-proximity eye reset.
+    //
+    // When the cursor sits over (or near) the avatar's face, the
+    // eyes converge into a cross-eyed pose chasing a target that's
+    // basically AT the head. That looks unsettling. The fix: when
+    // the cursor is within `faceProximityRadius` CSS pixels of the
+    // projected head-bone position, blend the eye target toward a
+    // neutral straight-ahead point. `faceProximityFade` is the soft
+    // falloff distance beyond that — eyes smoothly hand back to
+    // cursor tracking instead of popping. Head rotation is NOT
+    // affected; only the eye lookAt target.
+
+    this.faceProximityRadius =
+      options.faceProximityRadius ?? 90;
+
+    this.faceProximityFade =
+      options.faceProximityFade ?? 80;
+
     // ======================
     // STATE
     // ======================
@@ -527,6 +545,113 @@ export class LookAtManager {
         this._scratchVecA.y,
         this._scratchVecA.z + this.distance
       );
+
+    }
+
+    // ---- 2b) FACE-PROXIMITY EYE RESET (Phase 4 Wave 4.1) ----
+    //
+    // Project the head bone to screen, measure cursor distance to
+    // that point, and blend the eye target toward a neutral
+    // straight-ahead position based on proximity. Only runs in the
+    // idle (cursor-tracking) state — when an animation owns the
+    // head, the eyes are already heading toward neutral via the
+    // branch above.
+
+    if (
+      this.enabled &&
+      this.headBone &&
+      viewport &&
+      viewport.width > 0
+    ) {
+
+      // Head world position — cache scalar components BEFORE
+      // calling .project(), which mutates the vector in place.
+
+      this.headBone.getWorldPosition(
+        this._scratchVecB
+      );
+
+      const headWorldX =
+        this._scratchVecB.x;
+
+      const headWorldY =
+        this._scratchVecB.y;
+
+      const headWorldZ =
+        this._scratchVecB.z;
+
+      this._scratchVecB.project(this.camera);
+
+      // NDC -> CSS pixel space within the current viewport. Same
+      // bottom-left-origin → top-left-origin flip used elsewhere.
+
+      const faceScreenX =
+        viewport.x +
+        ((this._scratchVecB.x + 1) / 2) * viewport.width;
+
+      const faceScreenY =
+        window.innerHeight -
+        (viewport.y +
+          ((this._scratchVecB.y + 1) / 2) * viewport.height);
+
+      const cursorX =
+        this._lastCursorX ?? faceScreenX;
+
+      const cursorY =
+        this._lastCursorY ?? faceScreenY;
+
+      const distX =
+        cursorX - faceScreenX;
+
+      const distY =
+        cursorY - faceScreenY;
+
+      const distToFace =
+        Math.sqrt(distX * distX + distY * distY);
+
+      let faceResetFactor;
+
+      if (distToFace <= this.faceProximityRadius) {
+
+        faceResetFactor =
+          1;
+
+      } else if (
+        distToFace <
+        this.faceProximityRadius + this.faceProximityFade
+      ) {
+
+        faceResetFactor =
+          1 -
+          (distToFace - this.faceProximityRadius) /
+            this.faceProximityFade;
+
+      } else {
+
+        faceResetFactor =
+          0;
+
+      }
+
+      if (faceResetFactor > 0) {
+
+        // Neutral target = head world + (0, 0, distance) — straight
+        // ahead of the head bone in world space, same as the
+        // non-idle branch's default target. Reuse _scratchVecA as
+        // the lerp destination (idle branch doesn't touch it).
+
+        this._scratchVecA.set(
+          headWorldX,
+          headWorldY,
+          headWorldZ + this.distance
+        );
+
+        this._desiredPosition.lerp(
+          this._scratchVecA,
+          faceResetFactor
+        );
+
+      }
 
     }
 
