@@ -145,7 +145,29 @@ SYSTEM_VOLUME = genai.protos.FunctionDeclaration(
 )
 
 
-TOOL_DECLARATIONS = [OPEN_URL, OPEN_APP, SYSTEM_VOLUME]
+LOCK_PC = genai.protos.FunctionDeclaration(
+    name="lock_pc",
+    description=(
+        "Lock the user's PC. The Windows lock screen appears "
+        "immediately and the user must authenticate (password / PIN "
+        "/ biometric) to come back. Open apps, downloads, music, and "
+        "background tasks all keep running — this only secures the "
+        "screen, it doesn't sleep or shut down.\n\n"
+        "Use for any of these intents:\n"
+        "  'lock my pc' / 'lock the computer' / 'lock screen'\n"
+        "  'i'm stepping away' / 'i'll be right back'\n"
+        "  'secure the screen'\n\n"
+        "Do NOT use this if the user wants to sleep, hibernate, "
+        "shut down, or sign out — those are different actions."
+    ),
+    parameters=genai.protos.Schema(
+        type=genai.protos.Type.OBJECT,
+        properties={},
+    ),
+)
+
+
+TOOL_DECLARATIONS = [OPEN_URL, OPEN_APP, SYSTEM_VOLUME, LOCK_PC]
 
 
 # Single Tool wrapper passed to GenerativeModel(tools=[...]). One
