@@ -156,6 +156,30 @@ function registerIpcHandlers() {
     }
   );
 
+  // Renderer signals dialogue-queue idle: fire any deferred tool
+  // (lock_pc, sleep_pc) that was queued during this reply.
+
+  ipcMain.on(
+    'persona:tools-flush-deferred',
+    () => {
+
+      tools.flushDeferred();
+
+    }
+  );
+
+  // Renderer signals a new conversation started before the prior
+  // deferred tool fired (user changed their mind). Drop it.
+
+  ipcMain.on(
+    'persona:tools-cancel-deferred',
+    () => {
+
+      tools.cancelDeferred();
+
+    }
+  );
+
 }
 
 module.exports = {

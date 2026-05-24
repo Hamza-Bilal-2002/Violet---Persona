@@ -144,5 +144,26 @@ contextBridge.exposeInMainWorld(
 
     },
 
+    // Phase 3 Wave 3.2: deferred-tool coordination. Tools like
+    // lock_pc and sleep_pc execute their side-effect only after
+    // the avatar finishes its reply — otherwise the screen locks
+    // mid-sentence and the user never hears the confirmation.
+    //
+    // flushDeferredTools(): called when dialogueManager goes idle.
+    // cancelDeferredTools(): called when a new conversation begins
+    //   (user changed their mind before the action fired).
+
+    flushDeferredTools: () => {
+
+      ipcRenderer.send('persona:tools-flush-deferred');
+
+    },
+
+    cancelDeferredTools: () => {
+
+      ipcRenderer.send('persona:tools-cancel-deferred');
+
+    },
+
   }
 );

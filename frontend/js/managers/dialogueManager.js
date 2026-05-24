@@ -5,6 +5,7 @@ export class DialogueManager {
     animationManager,
     expressionManager,
     lipSyncManager,
+    onQueueIdle,
 
   }) {
 
@@ -20,6 +21,19 @@ export class DialogueManager {
 
     this.lipSyncManager =
       lipSyncManager;
+
+    // ======================
+    // CALLBACKS
+    // ======================
+    //
+    // onQueueIdle: fired when finishMessage drains the queue
+    // completely (no next message). Phase 3 Wave 3.2 uses this to
+    // flush deferred tools (lock_pc / sleep_pc) once the avatar's
+    // reply has fully played.
+
+    this.onQueueIdle =
+      onQueueIdle ||
+      (() => {});
 
     // ======================
     // STATE
@@ -450,6 +464,19 @@ export class DialogueManager {
     ) {
 
       this.playIdle();
+
+      try {
+
+        this.onQueueIdle();
+
+      } catch (err) {
+
+        console.error(
+          'DialogueManager: onQueueIdle threw',
+          err
+        );
+
+      }
 
     }
 

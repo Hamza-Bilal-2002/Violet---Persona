@@ -233,7 +233,27 @@ export class AvatarRuntime {
           this.expressionManager,
 
         lipSyncManager:
-          this.lipSyncManager
+          this.lipSyncManager,
+
+        // Phase 3 Wave 3.2: tell the shell to fire any deferred
+        // tool (lock_pc, sleep_pc) once the reply has fully played.
+        // The shell's tool dispatcher held the side-effect back so
+        // the avatar's confirmation doesn't get cut off.
+
+        onQueueIdle:
+          () => {
+
+            if (
+              typeof window !== 'undefined' &&
+              window.personaShell &&
+              typeof window.personaShell.flushDeferredTools === 'function'
+            ) {
+
+              window.personaShell.flushDeferredTools();
+
+            }
+
+          },
 
       });
 

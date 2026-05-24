@@ -195,13 +195,30 @@ export class VoiceFlow {
 
   trigger() {
 
+    const shell =
+      typeof window !== 'undefined'
+        ? window.personaShell
+        : null;
+
     if (
-      typeof window !== 'undefined' &&
-      window.personaShell &&
-      typeof window.personaShell.show === 'function'
+      shell &&
+      typeof shell.show === 'function'
     ) {
 
-      window.personaShell.show();
+      shell.show();
+
+    }
+
+    // Phase 3 Wave 3.2: a new conversation invalidates any deferred
+    // tool that was queued during the previous reply. User changed
+    // their mind ("lock my pc... actually never mind").
+
+    if (
+      shell &&
+      typeof shell.cancelDeferredTools === 'function'
+    ) {
+
+      shell.cancelDeferredTools();
 
     }
 
