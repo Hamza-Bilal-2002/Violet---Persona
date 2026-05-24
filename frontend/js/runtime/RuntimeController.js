@@ -117,7 +117,10 @@ export class RuntimeController {
           .expressionManager,
 
         this.avatarRuntime
-          .animationManager
+          .animationManager,
+
+        this.avatarRuntime
+          .currentVRM
 
       );
 

@@ -41,10 +41,11 @@ let wakeWordEnabled = true;
 
 // Phase 4 Wave 4.1: fade the avatar's material opacity when the
 // cursor approaches her, so she stops feeling like a popup
-// blocking work. Default on; the renderer is notified of this
-// initial state at 'persona:ready' alongside wake word.
+// blocking work. Default OFF per user preference — opt in via the
+// tray menu when wanted. The renderer is notified of the initial
+// state at 'persona:ready' alongside wake word.
 
-let opacityOnHoverEnabled = true;
+let opacityOnHoverEnabled = false;
 
 function rebuildTrayMenu() {
 
