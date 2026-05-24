@@ -213,10 +213,95 @@ SLEEP_PC = {
 }
 
 
+SPOTIFY_SEARCH = {
+    "type": "function",
+    "function": {
+        "name": "spotify_search",
+        "description": (
+            "Open Spotify and run a search for the given query — "
+            "song, artist, album, podcast, playlist. Use this for "
+            "requests like:\n"
+            "  'play despacito' / 'put on bohemian rhapsody'\n"
+            "  'find some lo-fi beats' / 'search for the weeknd'\n"
+            "  'open spotify and look for daft punk'\n\n"
+            "The Spotify desktop app launches (or comes to focus if "
+            "already running) with the search results. Playback "
+            "still requires a separate media_control('play') call "
+            "— the URI scheme alone can't trigger play, only "
+            "search. So when the user wants to actually start "
+            "music, call spotify_search FIRST and media_control "
+            "with action='play' RIGHT AFTER in the same turn.\n\n"
+            "Do NOT use this just to open the Spotify app with no "
+            "search target — use open_app('spotify') for that."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Free-text search query. Song name, "
+                        "artist, album, podcast — whatever the "
+                        "user said. URL-encoded by the executor."
+                    ),
+                },
+            },
+            "required": ["query"],
+        },
+    },
+}
+
+
+MEDIA_CONTROL = {
+    "type": "function",
+    "function": {
+        "name": "media_control",
+        "description": (
+            "Send a media control keystroke to whatever media app "
+            "is currently playing or has focus — Spotify, browser, "
+            "YouTube, VLC, Windows Media Player, etc. Uses the "
+            "system media keys, so the active media player decides "
+            "how to respond.\n\n"
+            "Four actions:\n"
+            "  play_pause — toggles playback (play if paused, pause "
+            "               if playing). Map 'play', 'pause', "
+            "               'resume', 'stop the music', 'continue' "
+            "               all to this.\n"
+            "  next       — skip to the next track\n"
+            "  previous   — go back to the previous track\n"
+            "  stop       — stop playback entirely\n\n"
+            "Tip: directly after spotify_search, call this with "
+            "action='play_pause' to actually start the top result."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "description": (
+                        "One of: 'play_pause', 'next', "
+                        "'previous', 'stop'."
+                    ),
+                    "enum": [
+                        "play_pause",
+                        "next",
+                        "previous",
+                        "stop",
+                    ],
+                },
+            },
+            "required": ["action"],
+        },
+    },
+}
+
+
 TOOL_DECLARATIONS = [
     OPEN_URL,
     OPEN_APP,
     SYSTEM_VOLUME,
     LOCK_PC,
     SLEEP_PC,
+    SPOTIFY_SEARCH,
+    MEDIA_CONTROL,
 ]

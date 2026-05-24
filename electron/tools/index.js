@@ -32,6 +32,8 @@ const openApp = require('./openApp');
 const systemVolume = require('./systemVolume');
 const lockPc = require('./lockPc');
 const sleepPc = require('./sleepPc');
+const spotifySearch = require('./spotifySearch');
+const mediaControl = require('./mediaControl');
 
 const REGISTRY = {
 
@@ -62,6 +64,16 @@ const REGISTRY = {
       sleepPc,
     deferred:
       true,
+  },
+
+  spotify_search: {
+    handler:
+      spotifySearch,
+  },
+
+  media_control: {
+    handler:
+      mediaControl,
   },
 
 };
