@@ -11,6 +11,64 @@ re-explain it.
 
 ## Where we left off (latest first)
 
+### 2026-05-24 — Mid Phase 3.2; about to swap LLM provider Gemini → OpenAI
+
+**Status:** Phase 3 Wave 3.1 closed (tool-calling protocol +
+`open_url`). Wave 3.2 in progress — 3 of 4 tools landed
+(`open_app`, `system_volume`, `lock_pc` with deferred-execution
+infra). Outstanding work: **`sleep_pc`** (the trivial twin of
+lock_pc, will use `deferred: true` flag).
+
+Mid-session decision: swap LLM provider from Gemini to OpenAI.
+Reason: even on `gemini-2.5-flash-lite` (15 RPM free tier) the
+limit was hitting too fast for daily use. User has a paid OpenAI
+key. Target model: TBD next turn (recommending `gpt-4o-mini` for
+cost efficiency + reliable function calling). This invalidates
+the `backend_mvp_gemini_only` memory.
+
+**What landed today (Wave 3.2 progress):**
+
+- `open_app(name)` — Windows `start "" "<name>"` shell-out, uses
+  App Paths registry + Store-app handlers. Strict allowlist on
+  name validation to block shell injection.
+- `system_volume(action, steps?)` — PowerShell SendKeys of
+  VK_VOLUME_UP/DOWN/MUTE. Up/down take a step count (default 3),
+  mute is a single toggle. `up`, `down`, `mute` only — absolute
+  level needs CoreAudio P/Invoke, punted to 3.3.
+- `lock_pc()` — `rundll32 user32.dll,LockWorkStation`. Marked
+  `deferred: true` so the screen locks AFTER the avatar finishes
+  speaking, not mid-sentence.
+- **Deferred-tools infrastructure** — single-slot pending queue
+  in `electron/tools/index.js`. `flushDeferred()` fires on
+  `DialogueManager.onQueueIdle`; `cancelDeferred()` fires on
+  `VoiceFlow.trigger()` (user changed their mind). Two new IPC
+  channels: `persona:tools-flush-deferred` and
+  `persona:tools-cancel-deferred`.
+
+**Carry-forward / next session:**
+
+1. Confirm OpenAI model (recommended: `gpt-4o-mini`).
+2. Refactor `backend/app/llm.py` from `google.generativeai` to
+   `openai`. Tool declaration shape differs (OpenAI uses
+   `{"type": "function", "function": {...}}`). History
+   management is explicit (no ChatSession; we maintain a
+   `messages` list ourselves). Tool round-trip pattern: emit
+   assistant message with `tool_calls`, then a `tool` role
+   message per result, then next assistant message.
+3. Update `tools.py` to expose OpenAI-shaped declarations
+   (could either keep Gemini protos and convert, or rewrite
+   declarations in OpenAI's JSON-schema shape).
+4. `backend/.env`: replace `GEMINI_API_KEY` with `OPENAI_API_KEY`.
+   Add `OPENAI_MODEL` env var with default `gpt-4o-mini`.
+5. `backend/requirements.txt`: add `openai`, can drop
+   `google-generativeai` later (or keep for safety).
+6. Finish Wave 3.2 → `sleep_pc` (one tiny commit, deferred: true).
+
+**Memory note:** `backend_mvp_gemini_only` is being replaced.
+Will update after the swap.
+
+---
+
 ### 2026-05-23 — Wave 2 polish + bootstrap; ready for Phase 3
 
 **Status:** Phase 2 fully closed and the launch experience is now
