@@ -40,6 +40,9 @@ from '../voice/VoiceFlow.js';
 import { WakeWordClient }
 from '../voice/WakeWordClient.js';
 
+import { TtsClient }
+from '../tts/TtsClient.js';
+
 // Backend wiring config. When the backend container is running
 // (docker compose up), the WebSocket at this URL drives dialogue.
 // If the connection fails, the offline test dialogue still runs
@@ -61,6 +64,14 @@ const SPEECH_TRANSCRIBE_URL =
 
 const WAKE_WS_URL =
   'ws://localhost:8003/ws';
+
+// Phase 4 Wave 4.2: the tts container exposes /synthesize on 8004.
+// DialogueManager POSTs reply text and gets back a WAV blob,
+// plays it through an HTMLAudioElement, and lipSyncManager hooks
+// up the audio-driven analyser path.
+
+const TTS_SYNTHESIZE_URL =
+  'http://localhost:8004/synthesize';
 
 const ENABLE_TEST_DIALOGUE =
   false;
@@ -258,6 +269,17 @@ export class AvatarRuntime {
           this.expressionManager
       });
 
+    // Phase 4 Wave 4.2: Piper TTS client. DialogueManager prefers
+    // this and falls back to browser SpeechSynthesisUtterance if
+    // the tts container is unreachable, so we don't need a guard
+    // here for "is the container up?".
+
+    this.ttsClient =
+      new TtsClient({
+        url:
+          TTS_SYNTHESIZE_URL,
+      });
+
     this.dialogueManager =
       new DialogueManager({
 
@@ -269,6 +291,9 @@ export class AvatarRuntime {
 
         lipSyncManager:
           this.lipSyncManager,
+
+        ttsClient:
+          this.ttsClient,
 
         // Phase 3 Wave 3.2: tell the shell to fire any deferred
         // tool (lock_pc, sleep_pc) once the reply has fully played.

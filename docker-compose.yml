@@ -69,6 +69,26 @@ services:
     networks:
       - persona_net
 
+  # Phase 4 Wave 4.2 — neural TTS sibling. Piper (ONNX) replaces the
+  # browser SpeechSynthesisUtterance pipeline. POST /synthesize
+  # returns WAV bytes which the renderer plays through an
+  # HTMLAudioElement; LipSyncManager's audio-analyser path takes
+  # over from there. Voice model (en_US-amy-medium) is baked into
+  # the image at build time so first call doesn't stall.
+  tts:
+    build:
+      context: ./tts
+      dockerfile: Dockerfile
+    container_name: persona_tts
+    ports:
+      - "8004:8004"
+    volumes:
+      # live reload during dev. remove for prod.
+      - ./tts:/app
+    restart: unless-stopped
+    networks:
+      - persona_net
+
 networks:
   persona_net:
     driver: bridge

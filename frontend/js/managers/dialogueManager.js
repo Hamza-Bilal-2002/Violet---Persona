@@ -5,6 +5,7 @@ export class DialogueManager {
     animationManager,
     expressionManager,
     lipSyncManager,
+    ttsClient,
     onQueueIdle,
 
   }) {
@@ -21,6 +22,15 @@ export class DialogueManager {
 
     this.lipSyncManager =
       lipSyncManager;
+
+    // Phase 4 Wave 4.2: ttsClient is the Piper container shim. If
+    // provided, speak() uses it and the audio-analyser lip-sync
+    // path; if synthesis fails or no client is provided, falls
+    // back to browser SpeechSynthesisUtterance + boundary-pulse
+    // lip-sync (the pre-Piper path).
+
+    this.ttsClient =
+      ttsClient || null;
 
     // ======================
     // CALLBACKS
@@ -45,6 +55,13 @@ export class DialogueManager {
       null;
 
     this.currentUtterance =
+      null;
+
+    // Phase 4 Wave 4.2: piper path keeps an HTMLAudioElement for
+    // the in-flight utterance (separately from currentUtterance,
+    // which only applies to the browser-TTS fallback).
+
+    this.currentAudio =
       null;
 
     this.currentAnimation =
@@ -238,8 +255,12 @@ export class DialogueManager {
   // ======================
   // SPEAK
   // ======================
+  //
+  // Phase 4 Wave 4.2: prefer Piper, fall back to browser TTS.
+  // Both paths converge on finishMessage() so the queue drains
+  // consistently regardless of which engine handled this turn.
 
-  speak(message) {
+  async speak(message) {
 
     console.log(
       'SPEAKING:',
@@ -249,33 +270,118 @@ export class DialogueManager {
     this.isSpeaking =
       true;
 
-    // ======================
-    // ANIMATION
-    // ======================
-
     this.playAnimation(
       message.animation
     );
-
-    // ======================
-    // EMOTION
-    // ======================
 
     this.playEmotion(
       message.emotion
     );
 
-    // ======================
-    // TTS
-    // ======================
+    if (this.ttsClient) {
 
-    const utterance =
+      try {
 
-      new SpeechSynthesisUtterance(
-        message.text
+        await this._speakViaPiper(message);
+
+        return;
+
+      } catch (err) {
+
+        console.warn(
+          'DialogueManager: Piper failed, falling back ' +
+          'to browser TTS:',
+          err && err.message ? err.message : err
+        );
+
+        // Continue into the browser-TTS branch below.
+
+      }
+
+    }
+
+    this._speakViaBrowser(message);
+
+  }
+
+  async _speakViaPiper(message) {
+
+    const blob =
+      await this.ttsClient.synthesize(message.text);
+
+    const url =
+      URL.createObjectURL(blob);
+
+    const audio =
+      new Audio(url);
+
+    audio.addEventListener(
+      'ended',
+      () => {
+
+        URL.revokeObjectURL(url);
+
+        console.log(
+          'TTS FINISHED (piper)'
+        );
+
+        this.finishMessage();
+
+      }
+    );
+
+    audio.addEventListener(
+      'error',
+      (err) => {
+
+        URL.revokeObjectURL(url);
+
+        console.error(
+          'TTS audio error (piper):',
+          err
+        );
+
+        this.finishMessage();
+
+      }
+    );
+
+    this.currentAudio =
+      audio;
+
+    // Wire the audio-driven lip-sync path BEFORE play() so the
+    // first samples aren't missed by the AnalyserNode.
+
+    this.lipSyncManager
+      ?.attachAudio(audio);
+
+    try {
+
+      await audio.play();
+
+      console.log(
+        'TTS STARTED (piper)'
       );
 
-    // SETTINGS
+    } catch (err) {
+
+      // play() rejects when the browser/Electron blocks autoplay
+      // before user interaction. Surface to caller so speak()
+      // can fall back to browser TTS — which has its own
+      // unlock-via-click handler in RuntimeController.
+
+      URL.revokeObjectURL(url);
+      this.currentAudio = null;
+      throw err;
+
+    }
+
+  }
+
+  _speakViaBrowser(message) {
+
+    const utterance =
+      new SpeechSynthesisUtterance(message.text);
 
     utterance.rate =
       1.0;
@@ -286,21 +392,15 @@ export class DialogueManager {
     utterance.volume =
       1.0;
 
-    // ======================
-    // EVENTS
-    // ======================
-
     utterance.onstart =
       () => {
 
         console.log(
-          'TTS STARTED'
+          'TTS STARTED (browser)'
         );
 
         this.lipSyncManager
-          ?.attachUtterance(
-            utterance
-          );
+          ?.attachUtterance(utterance);
 
       };
 
@@ -308,7 +408,7 @@ export class DialogueManager {
       () => {
 
         console.log(
-          'TTS FINISHED'
+          'TTS FINISHED (browser)'
         );
 
         this.finishMessage();
@@ -318,13 +418,7 @@ export class DialogueManager {
     utterance.onerror =
       (err) => {
 
-        // IGNORE MANUAL
-        // INTERRUPTS
-
-        if (
-          err.error ===
-          'interrupted'
-        ) {
+        if (err.error === 'interrupted') {
 
           console.log(
             'TTS INTERRUPTED'
@@ -335,7 +429,7 @@ export class DialogueManager {
         }
 
         console.error(
-          'TTS ERROR:',
+          'TTS ERROR (browser):',
           err
         );
 
@@ -343,16 +437,10 @@ export class DialogueManager {
 
       };
 
-    // STORE
-
     this.currentUtterance =
       utterance;
 
-    // SPEAK
-
-    speechSynthesis.speak(
-      utterance
-    );
+    speechSynthesis.speak(utterance);
 
   }
 
@@ -446,6 +534,9 @@ export class DialogueManager {
     this.currentUtterance =
       null;
 
+    this.currentAudio =
+      null;
+
     // RESET EMOTIONS
 
     this.expressionManager
@@ -493,7 +584,27 @@ export class DialogueManager {
     this.lipSyncManager
       ?.detach();
 
-    // STOP TTS
+    // Stop Piper audio if it was the current path.
+
+    if (this.currentAudio) {
+
+      try {
+
+        this.currentAudio.pause();
+        this.currentAudio.src = '';
+
+      } catch (err) {
+
+        // ignore — already torn down
+      }
+
+      this.currentAudio =
+        null;
+
+    }
+
+    // Stop browser TTS if it was the current path. Safe to call
+    // even when nothing is queued — it's idempotent.
 
     speechSynthesis.cancel();
 
