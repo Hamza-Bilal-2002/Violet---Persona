@@ -1,7 +1,8 @@
 # Persona Backend
 
-FastAPI service that talks to Gemini 2.5 Flash and pushes structured
-replies (text + emotion + animation hints) to the frontend over a
+FastAPI service that talks to OpenAI (gpt-4o-mini by default) with
+function calling and pushes structured replies (text + emotion +
+animation hints) plus tool_call frames to the frontend over a
 WebSocket.
 
 ## Bring up
@@ -9,7 +10,7 @@ WebSocket.
 ```bash
 cd backend
 cp .env.example .env
-# edit .env and set GEMINI_API_KEY
+# edit .env and set OPENAI_API_KEY (optionally OPENAI_MODEL)
 ```
 
 From the project root:
@@ -53,9 +54,9 @@ Error frames look like:
 ## What's NOT here yet
 
 - Piper TTS (frontend uses browser TTS for MVP — swap planned)
-- Ollama / local LLM (Gemini cloud only for MVP)
+- Ollama / local LLM (OpenAI cloud only)
 - ChromaDB / RAG knowledge base
-- Whisper STT (voice input)
+- Whisper STT lives in the speech/ container, not here
 
 ## File layout
 
@@ -70,6 +71,7 @@ backend/
     ├── __init__.py
     ├── main.py        # FastAPI app, /health, /chat/ws
     ├── config.py      # pydantic-settings, loads .env
-    ├── llm.py         # Gemini client + system prompt
+    ├── llm.py         # OpenAI client + system prompt + chat session
+    ├── tools.py       # function-call schemas for Phase 3
     └── protocol.py    # emotion/animation tag parser
 ```

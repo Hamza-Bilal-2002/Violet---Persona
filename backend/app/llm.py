@@ -1,21 +1,38 @@
 """
-Gemini 2.5 Flash integration. One provider for now — abstraction
-kept thin so we can add Ollama / OpenAI later without changing
-callers. See memory: backend-mvp-gemini-only.
+LLM integration. Uses OpenAI's chat-completions API with function
+calling (`tools` parameter). The previous Gemini-backed
+implementation lives in git history (commit before this one).
 
-Phase 3 changed the shape of this module. Previously reply()
-returned a single string. Now start_chat() returns a stateful
-session that callers can drive through a multi-step function-call
-loop (see backend/app/main.py for the orchestration).
+Why we swapped: gemini-2.5-flash-lite's free tier (15 RPM / 1000
+RPD) was tight for daily use and gpt-4o-mini's paid tier is
+genuinely cheap for short conversational replies. Function calling
+on gpt-4o-mini is also more disciplined than flash-lite — fewer
+hallucinated "I did that" responses without an actual tool call.
+
+Interface preserved from the prior Gemini version so main.py is
+unchanged:
+  - client.create_session() -> ChatSession
+  - session.send_user_message(text) -> {"text": ..., "function_calls": ...}
+  - session.send_function_responses([(name, payload), ...]) -> same
+  - session.trim_history(max_entries)
+
+The internal shape is different though. OpenAI's chat completions
+have no built-in chat-session abstraction; we maintain the
+`messages` list ourselves. Tool round-trip is:
+  - assistant message with tool_calls = [{id, function: {name, arguments}}]
+  - one tool message per tool_call_id: {role: "tool", tool_call_id, content}
+  - next assistant message (text or more tool_calls)
 """
 
 from __future__ import annotations
 
-import google.generativeai as genai
+import json
+
 from loguru import logger
+from openai import OpenAI
 
 from .config import settings
-from .tools import TOOL
+from .tools import TOOL_DECLARATIONS
 
 
 # System prompt is built at module import from agent identity in
@@ -103,129 +120,182 @@ def _build_system_prompt() -> str:
 SYSTEM_PROMPT = _build_system_prompt()
 
 
-class GeminiChatSession:
-    """Long-lived chat session for one WebSocket connection.
+class ChatSession:
+    """Long-lived dialogue session for one WebSocket connection.
 
-    The wrapped Gemini ChatSession accumulates its own history
-    across user messages, including function_call / function_response
-    cycles. That's critical: without those preserved, a follow-up
-    "open X" request looks like an unrelated text exchange to Gemini
-    and the model often pattern-matches into "answer with text" mode
-    instead of calling the tool.
-
-    main.py creates one of these per accepted WebSocket and drives
-    the loop with send_user_message + send_function_responses. The
-    session is disposable when the socket closes.
+    Holds the running `messages` list — system + alternating user /
+    assistant (with optional tool_calls) / tool (results) — across
+    every turn of the connection. Preserving the assistant-with-
+    tool_calls + tool-result pairs is critical for OpenAI: without
+    them the model loses track of what tools have been invoked and
+    starts pattern-matching into "answer with text alone" mode (the
+    same hallucination class that hit us on Gemini before the
+    history fix).
     """
 
-    def __init__(self, chat) -> None:
-        self._chat = chat
+    def __init__(self, client: "OpenAI", model: str) -> None:
+        self._client = client
+        self._model = model
+        # System message is index 0 forever. Trim_history preserves it.
+        self._messages: list[dict] = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+        ]
+        # Tool calls from the most recent assistant message. Cached
+        # so send_function_responses can emit tool messages with the
+        # right tool_call_ids in the right order.
+        self._last_tool_calls: list[dict] = []
 
-    def send_user_message(self, message: str) -> dict:
-        """Send fresh user input. Returns parsed response dict."""
-        response = self._chat.send_message(message)
-        return self._parse(response)
+    def send_user_message(self, text: str) -> dict:
+        """Send fresh user input. Returns {"text", "function_calls"}."""
+        self._messages.append({"role": "user", "content": text})
+        return self._run_once()
 
     def send_function_responses(self, responses: list[tuple]) -> dict:
-        """Send N tool results back to Gemini in one Content message.
+        """Send N tool results back to the model in the same order
+        the function_calls were issued.
 
         Args:
-          responses: list of (function_name, payload_dict) tuples.
-            payload typically has {"result": ...} or {"error": ...}.
+          responses: list of (function_name, payload_dict) tuples,
+            paired by index with the previous turn's tool_calls.
+            Payload is typically {"result": ...} or {"error": ...}.
         """
-        parts = [
-            genai.protos.Part(
-                function_response=genai.protos.FunctionResponse(
-                    name=name,
-                    response=payload,
-                )
+        if not self._last_tool_calls:
+            raise RuntimeError(
+                "send_function_responses called without a preceding tool_calls turn"
             )
-            for name, payload in responses
-        ]
-        response = self._chat.send_message(
-            genai.protos.Content(parts=parts)
-        )
-        return self._parse(response)
+
+        for i, (_name, payload) in enumerate(responses):
+            if i >= len(self._last_tool_calls):
+                logger.warning(
+                    f"more tool responses ({len(responses)}) than tool_calls "
+                    f"({len(self._last_tool_calls)}); dropping extras"
+                )
+                break
+            tool_call_id = self._last_tool_calls[i]["id"]
+            self._messages.append({
+                "role": "tool",
+                "tool_call_id": tool_call_id,
+                "content": json.dumps(payload),
+            })
+
+        self._last_tool_calls = []
+        return self._run_once()
 
     def trim_history(self, max_entries: int) -> None:
-        """Cap accumulated history. Trims oldest entries first.
+        """Cap the running message list. Trims at user-message
+        boundaries so we never leave an orphaned tool message
+        (which OpenAI rejects with 400 invalid_request_error)."""
 
-        Naive slicing — could theoretically cut between a
-        function_call and its function_response, but Gemini tolerates
-        that case in practice (treats the orphaned pair as a partial
-        exchange to be ignored). We tolerate the rough edge until a
-        real bug appears.
-        """
-        if len(self._chat.history) > max_entries:
-            self._chat.history = self._chat.history[-max_entries:]
+        body = self._messages[1:]  # skip system
 
-    @staticmethod
-    def _parse(response) -> dict:
-        """Pull text + function_calls out of a Gemini response.
+        if len(body) <= max_entries:
+            return
 
-        Gemini in function-calling mode typically emits EITHER text
-        OR function_calls per turn, but the SDK permits mixed parts
-        so we accumulate both defensively.
-        """
-        text_parts: list[str] = []
+        # Start from the natural cut point (oldest entries first
+        # to drop) and walk forward until we land on a user role.
+        # Cutting only at user-message boundaries guarantees every
+        # tool_call has its matching tool response and vice-versa.
+
+        cut = len(body) - max_entries
+        while cut < len(body) and body[cut].get("role") != "user":
+            cut += 1
+
+        self._messages = [self._messages[0]] + body[cut:]
+
+    def _run_once(self) -> dict:
+        """One round-trip to the OpenAI API. Persists the assistant
+        message in our history (must, so subsequent tool messages
+        reference valid tool_call_ids) and returns parsed shape."""
+
+        response = self._client.chat.completions.create(
+            model=self._model,
+            messages=self._messages,
+            tools=TOOL_DECLARATIONS,
+        )
+
+        msg = response.choices[0].message
+
+        # Persist the assistant turn in history. OpenAI requires
+        # the assistant-with-tool_calls message be present in the
+        # subsequent request — otherwise the tool messages we send
+        # are unmatched and the API errors.
+
+        assistant_entry: dict = {
+            "role": "assistant",
+            "content": msg.content,  # may be None when only tool_calls
+        }
+
         function_calls: list[dict] = []
 
-        for candidate in response.candidates or []:
-            for part in candidate.content.parts:
-                fc = getattr(part, "function_call", None)
-                if fc and fc.name:
-                    function_calls.append({
-                        "name": fc.name,
-                        # fc.args is a MapComposite; coerce to plain
-                        # dict so downstream code can JSON-serialize.
-                        "args": dict(fc.args) if fc.args else {},
-                    })
-                    continue
-                text = getattr(part, "text", None)
-                if text:
-                    text_parts.append(text)
+        if msg.tool_calls:
+            serialized_tcs = []
+            for tc in msg.tool_calls:
+                serialized_tcs.append({
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments,
+                    },
+                })
+                try:
+                    args = (
+                        json.loads(tc.function.arguments)
+                        if tc.function.arguments
+                        else {}
+                    )
+                except json.JSONDecodeError:
+                    logger.warning(
+                        f"tool_call {tc.id} {tc.function.name} had "
+                        f"non-JSON arguments: {tc.function.arguments!r}"
+                    )
+                    args = {}
+                function_calls.append({
+                    "name": tc.function.name,
+                    "args": args,
+                })
+
+            assistant_entry["tool_calls"] = serialized_tcs
+            self._last_tool_calls = [
+                {"id": tc.id, "name": tc.function.name}
+                for tc in msg.tool_calls
+            ]
+
+        self._messages.append(assistant_entry)
 
         return {
-            "text": "".join(text_parts),
+            "text": msg.content or "",
             "function_calls": function_calls,
         }
 
 
-class GeminiClient:
-    """Thin wrapper that owns model configuration and produces
+class LLMClient:
+    """Thin wrapper that owns OpenAI client config and produces
     chat sessions on demand."""
 
     def __init__(self) -> None:
-        if not settings.GEMINI_API_KEY:
+        if not settings.OPENAI_API_KEY:
             logger.warning(
-                "GEMINI_API_KEY is empty — replies will fail until .env is filled in."
+                "OPENAI_API_KEY is empty — replies will fail until .env is filled in."
             )
             self._configured = False
+            self._openai = None
         else:
-            genai.configure(api_key=settings.GEMINI_API_KEY)
+            self._openai = OpenAI(api_key=settings.OPENAI_API_KEY)
             self._configured = True
 
-        self._model_name = settings.GEMINI_MODEL
+        self._model = settings.OPENAI_MODEL
+        logger.info(f"LLM provider: openai, model: {self._model}")
 
-    def _build_model(self):
-        return genai.GenerativeModel(
-            model_name=self._model_name,
-            system_instruction=SYSTEM_PROMPT,
-            tools=[TOOL],
-        )
-
-    def create_session(self) -> GeminiChatSession:
-        """Create a fresh chat session with no prior history. One per
-        WebSocket connection — the session itself accumulates history
-        across user turns."""
+    def create_session(self) -> ChatSession:
+        """Create a fresh chat session with no prior history. One
+        per WebSocket connection — the session accumulates history
+        across user turns internally."""
         if not self._configured:
             raise RuntimeError(
-                "Gemini not configured. Set GEMINI_API_KEY in backend/.env"
+                "OpenAI not configured. Set OPENAI_API_KEY in backend/.env"
             )
-
-        model = self._build_model()
-        chat = model.start_chat()
-        return GeminiChatSession(chat)
+        return ChatSession(self._openai, self._model)
 
 
-client = GeminiClient()
+client = LLMClient()

@@ -93,8 +93,8 @@ async def root():
 async def health():
     return {
         "status": "ok",
-        "llm_configured": bool(settings.GEMINI_API_KEY),
-        "model": settings.GEMINI_MODEL,
+        "llm_configured": bool(settings.OPENAI_API_KEY),
+        "model": settings.OPENAI_MODEL,
     }
 
 
