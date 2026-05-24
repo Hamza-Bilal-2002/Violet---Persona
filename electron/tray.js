@@ -39,6 +39,13 @@ let devToolsOpen = false;
 
 let wakeWordEnabled = true;
 
+// Phase 4 Wave 4.1: fade the avatar's material opacity when the
+// cursor approaches her, so she stops feeling like a popup
+// blocking work. Default on; the renderer is notified of this
+// initial state at 'persona:ready' alongside wake word.
+
+let opacityOnHoverEnabled = true;
+
 function rebuildTrayMenu() {
 
   if (!tray) {
@@ -69,6 +76,26 @@ function rebuildTrayMenu() {
           mainWindow.webContents.send(
             'persona:toggle-wake-word',
             wakeWordEnabled
+          );
+
+        }
+
+      },
+    },
+
+    {
+      label: 'Fade on Hover',
+      type: 'checkbox',
+      checked: opacityOnHoverEnabled,
+      click: (menuItem) => {
+
+        opacityOnHoverEnabled = menuItem.checked;
+
+        if (mainWindow) {
+
+          mainWindow.webContents.send(
+            'persona:toggle-opacity-on-hover',
+            opacityOnHoverEnabled
           );
 
         }
@@ -209,7 +236,12 @@ function isWakeWordEnabled() {
   return wakeWordEnabled;
 }
 
+function isOpacityOnHoverEnabled() {
+  return opacityOnHoverEnabled;
+}
+
 module.exports = {
   createTray,
   isWakeWordEnabled,
+  isOpacityOnHoverEnabled,
 };

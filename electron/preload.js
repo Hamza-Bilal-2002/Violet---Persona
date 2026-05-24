@@ -130,6 +130,23 @@ contextBridge.exposeInMainWorld(
 
     },
 
+    // Phase 4 Wave 4.1: subscribe to the opacity-on-hover toggle.
+    // callback receives a boolean — true to enable the cursor-
+    // proximity fade, false to force the avatar fully opaque.
+
+    onOpacityOnHoverToggle: (callback) => {
+
+      ipcRenderer.on(
+        'persona:toggle-opacity-on-hover',
+        (_event, enabled) => {
+
+          callback(enabled);
+
+        }
+      );
+
+    },
+
     // Phase 3 Wave 3.1: execute a tool in the main process. Returns
     // a Promise resolving to {result} on success or {error} on
     // failure. BackendClient relays this from tool_call frames the

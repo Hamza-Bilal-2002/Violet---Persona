@@ -7,7 +7,7 @@
 const { ipcMain } = require('electron');
 
 const { getMainWindow } = require('./window');
-const { isWakeWordEnabled } = require('./tray');
+const { isWakeWordEnabled, isOpacityOnHoverEnabled } = require('./tray');
 const tools = require('./tools');
 
 function registerIpcHandlers() {
@@ -104,6 +104,16 @@ function registerIpcHandlers() {
         );
 
       }
+
+      // Phase 4 Wave 4.1: opacity-on-hover follows the same
+      // initial-state pattern as wake word. Renderer's listener is
+      // wired during AvatarRuntime construction so it's there by
+      // the time persona:ready fires.
+
+      mainWindow.webContents.send(
+        'persona:toggle-opacity-on-hover',
+        isOpacityOnHoverEnabled()
+      );
 
       if (mainWindow.isVisible()) {
         return;

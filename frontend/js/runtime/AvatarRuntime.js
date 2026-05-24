@@ -155,6 +155,41 @@ export class AvatarRuntime {
       { passive: true }
     );
 
+    // ======================
+    // OPACITY-ON-HOVER (Phase 4 Wave 4.1)
+    // ======================
+    //
+    // The avatar fades to ~30% opacity when the cursor is over her
+    // and full-strength when it's away, so she stops feeling like
+    // a popup blocking work. Driven from onFrameAfterRender using
+    // the same per-frame cursor + viewport context already
+    // available for the click-through hit-test.
+    //
+    // Material list is cached after the VRM loads (see init()) so
+    // the per-frame path doesn't traverse the scene tree each frame.
+
+    this._opacityEnabled =
+      true;
+
+    this._currentOpacity =
+      1;
+
+    this._avatarMaterials =
+      [];
+
+    // Fade tuning. Inner radius = cursor within this many CSS px of
+    // the avatar's viewport center is fully faded. Outer radius =
+    // beyond this distance, fully opaque. Between the two, linear.
+
+    this._opacityMinValue =
+      0.3;
+
+    this._opacityFadeStartPx =
+      300;
+
+    this._opacityFadeEndPx =
+      120;
+
   }
 
   async init() {
@@ -334,6 +369,48 @@ export class AvatarRuntime {
     );
 
     // ======================
+    // MATERIAL CACHE (Phase 4 Wave 4.1)
+    // ======================
+    //
+    // Snapshot every material in the VRM scene so the per-frame
+    // opacity update doesn't traverse the scene tree. Each material
+    // gets transparent=true set once here; the per-frame path only
+    // writes .opacity. transparent enables Three.js to alpha-blend
+    // the material against the framebuffer; MToon and the standard
+    // three materials all respect this.
+    //
+    // depthWrite=false is deliberately NOT set — keeping depth
+    // writes prevents the avatar's torso from showing through her
+    // arms when faded.
+
+    this._avatarMaterials =
+      [];
+
+    this.currentVRM.scene.traverse(
+      (obj) => {
+
+        if (!obj.material) {
+          return;
+        }
+
+        const mats =
+          Array.isArray(obj.material)
+            ? obj.material
+            : [obj.material];
+
+        for (const mat of mats) {
+
+          mat.transparent =
+            true;
+
+          this._avatarMaterials.push(mat);
+
+        }
+
+      }
+    );
+
+    // ======================
     // SHOW MODEL
     // ======================
 
@@ -504,6 +581,44 @@ export class AvatarRuntime {
 
     }
 
+    // ======================
+    // OPACITY-ON-HOVER TOGGLE (Phase 4 Wave 4.1)
+    // ======================
+    //
+    // Tray menu "Fade on Hover" checkbox flips this. When off, we
+    // force opacity back to 1.0 immediately so the avatar doesn't
+    // freeze at whatever faded value she was last at.
+
+    if (
+      window.personaShell &&
+      typeof window.personaShell.onOpacityOnHoverToggle === 'function'
+    ) {
+
+      window.personaShell.onOpacityOnHoverToggle(
+        (enabled) => {
+
+          this._opacityEnabled =
+            !!enabled;
+
+          if (!this._opacityEnabled) {
+
+            this._currentOpacity =
+              1;
+
+            for (const mat of this._avatarMaterials) {
+
+              mat.opacity =
+                1;
+
+            }
+
+          }
+
+        }
+      );
+
+    }
+
     // OFFLINE FALLBACK
     // useful when developing without the backend
     // running. flip ENABLE_TEST_DIALOGUE at the
@@ -608,6 +723,18 @@ export class AvatarRuntime {
 
     }
 
+    // Click-through and opacity-fade are independent per-frame
+    // updates — opacity has to run every frame for the smoothing
+    // lerp, click-through only fires IPC on state change.
+
+    this._updateClickThrough(frameCtx);
+
+    this._updateOpacity(frameCtx);
+
+  }
+
+  _updateClickThrough(frameCtx) {
+
     const isOverAvatar =
       this._isCursorOverAvatar(frameCtx);
 
@@ -639,6 +766,102 @@ export class AvatarRuntime {
       window.personaShell.setIgnoreMouse(
         desiredIgnore
       );
+
+    }
+
+  }
+
+  _updateOpacity(frameCtx) {
+
+    if (!this._opacityEnabled) {
+
+      return;
+
+    }
+
+    if (!this._avatarMaterials.length) {
+
+      return;
+
+    }
+
+    const vp =
+      frameCtx && frameCtx.viewport;
+
+    if (
+      !vp ||
+      vp.width <= 0 ||
+      vp.height <= 0
+    ) {
+
+      return;
+
+    }
+
+    // Avatar viewport center in CSS pixel coords. Same WebGL
+    // bottom-left → CSS top-left flip used elsewhere.
+
+    const avatarCx =
+      vp.x + vp.width / 2;
+
+    const avatarCy =
+      window.innerHeight - (vp.y + vp.height / 2);
+
+    const dx =
+      this._lastMouse.x - avatarCx;
+
+    const dy =
+      this._lastMouse.y - avatarCy;
+
+    const dist =
+      Math.sqrt(dx * dx + dy * dy);
+
+    // Distance → target opacity. Far = full opacity, near = faded.
+
+    let targetOpacity;
+
+    if (dist >= this._opacityFadeStartPx) {
+
+      targetOpacity =
+        1;
+
+    } else if (dist <= this._opacityFadeEndPx) {
+
+      targetOpacity =
+        this._opacityMinValue;
+
+    } else {
+
+      const t =
+        (this._opacityFadeStartPx - dist) /
+        (this._opacityFadeStartPx - this._opacityFadeEndPx);
+
+      targetOpacity =
+        1 - t * (1 - this._opacityMinValue);
+
+    }
+
+    // Per-frame smoothing. 0.15 at 60fps gives ~250ms to settle —
+    // visible fade rather than a snap, but quick enough not to lag
+    // perceptibly behind cursor motion.
+
+    this._currentOpacity +=
+      (targetOpacity - this._currentOpacity) * 0.15;
+
+    // Snap when essentially there, avoids floating-point drift and
+    // micro-writes to material.opacity once we've settled.
+
+    if (Math.abs(targetOpacity - this._currentOpacity) < 0.001) {
+
+      this._currentOpacity =
+        targetOpacity;
+
+    }
+
+    for (const mat of this._avatarMaterials) {
+
+      mat.opacity =
+        this._currentOpacity;
 
     }
 
