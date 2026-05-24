@@ -4,6 +4,5 @@ websockets==13.1
 python-dotenv==1.0.1
 pydantic==2.9.2
 pydantic-settings==2.5.2
-google-generativeai==0.8.3
-openai==1.59.0
+openai==1.58.1
 loguru==0.7.2
