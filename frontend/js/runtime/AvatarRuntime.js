@@ -728,17 +728,22 @@ export class AvatarRuntime {
 
     }
 
-    // Bounding-sphere hit-test instead of full mesh raycast.
-    // The original recursive raycast over the VRM's entire mesh
-    // tree was the dominant cost in the per-frame budget — each
-    // call walks thousands of triangles. The bounding sphere is
-    // computed once at load time (see _computeAvatarBoundingSphere)
-    // and ray-sphere intersection is O(1).
+    // Phase 4 Wave 4.1: hybrid hit-test — bounding sphere as the
+    // cheap rejection, precise mesh raycast for the final answer.
     //
-    // Tradeoff: the sphere is slightly larger than the avatar's
-    // silhouette, so the click-capture region is a bit generous
-    // around her edges. In practice that's a UX nicety — users
-    // don't need pixel-perfect aim — and the perf win is large.
+    // The sphere is intentionally conservative (covers the avatar's
+    // full silhouette plus a margin), so using it alone leaves a
+    // "dead" zone of unclickable space around the avatar where
+    // clicks should pass through to apps below. With the mesh
+    // raycast as the precise pass, the click-capture region matches
+    // the actual silhouette and gaps between body parts (e.g.,
+    // between arms and torso) pass clicks through.
+    //
+    // Perf: ray-mesh intersection on the VRM scene tree walks all
+    // visible triangles. The sphere reject cuts out the common
+    // case (cursor nowhere near the avatar) at O(1), so the mesh
+    // raycast only runs when the cursor is in the vicinity — a
+    // brief fraction of typical use.
 
     if (!this._avatarBoundingSphere) {
 
@@ -762,9 +767,30 @@ export class AvatarRuntime {
       this.camera
     );
 
-    return this._hitRaycaster.ray.intersectsSphere(
-      this._avatarBoundingSphere
-    );
+    // Cheap reject first.
+
+    if (
+      !this._hitRaycaster.ray.intersectsSphere(
+        this._avatarBoundingSphere
+      )
+    ) {
+
+      return false;
+
+    }
+
+    // Sphere hit — precise mesh raycast. Recursive flag walks every
+    // mesh under the VRM scene root. We don't need the intersect
+    // payloads, just whether anything was hit, so the cheapest exit
+    // is to check length > 0.
+
+    const hits =
+      this._hitRaycaster.intersectObject(
+        this.currentVRM.scene,
+        true
+      );
+
+    return hits.length > 0;
 
   }
 
