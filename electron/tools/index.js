@@ -14,6 +14,7 @@
 
 const openUrl = require('./openUrl');
 const openApp = require('./openApp');
+const systemVolume = require('./systemVolume');
 
 const REGISTRY = {
 
@@ -22,6 +23,9 @@ const REGISTRY = {
 
   open_app:
     openApp,
+
+  system_volume:
+    systemVolume,
 
 };
 

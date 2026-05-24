@@ -102,7 +102,50 @@ OPEN_APP = genai.protos.FunctionDeclaration(
 )
 
 
-TOOL_DECLARATIONS = [OPEN_URL, OPEN_APP]
+SYSTEM_VOLUME = genai.protos.FunctionDeclaration(
+    name="system_volume",
+    description=(
+        "Adjust the user's system volume. Use this for any request "
+        "to make the PC louder or quieter — 'volume up', 'turn it "
+        "down', 'louder', 'quieter', 'mute', 'unmute', 'silence the "
+        "PC', etc.\n\n"
+        "Three actions:\n"
+        "  up    — raise the volume\n"
+        "  down  — lower the volume\n"
+        "  mute  — toggle mute (calling 'mute' again unmutes)\n\n"
+        "For 'up' and 'down', choose a 'steps' value based on how "
+        "much change the user wants. Each step is roughly a 2% "
+        "change in master volume.\n"
+        "  'volume up' / 'a bit louder'        -> steps: 3\n"
+        "  'volume up a lot' / 'much louder'   -> steps: 8\n"
+        "  'just a tiny bit louder'            -> steps: 1\n"
+        "  'maximum volume' / 'as loud as it goes' -> steps: 50\n"
+        "For 'mute', steps is ignored — it's a single toggle."
+    ),
+    parameters=genai.protos.Schema(
+        type=genai.protos.Type.OBJECT,
+        properties={
+            "action": genai.protos.Schema(
+                type=genai.protos.Type.STRING,
+                description=(
+                    "One of: 'up', 'down', 'mute'."
+                ),
+                enum=["up", "down", "mute"],
+            ),
+            "steps": genai.protos.Schema(
+                type=genai.protos.Type.INTEGER,
+                description=(
+                    "Number of 2%-volume steps to apply (1-50). "
+                    "Defaults to 3 if omitted. Ignored for 'mute'."
+                ),
+            ),
+        },
+        required=["action"],
+    ),
+)
+
+
+TOOL_DECLARATIONS = [OPEN_URL, OPEN_APP, SYSTEM_VOLUME]
 
 
 # Single Tool wrapper passed to GenerativeModel(tools=[...]). One
