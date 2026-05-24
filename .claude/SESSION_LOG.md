@@ -11,6 +11,32 @@ re-explain it.
 
 ## Where we left off (latest first)
 
+### 2026-05-24 (final) — Phase 3 closed; ROADMAP rewritten; starting Wave 4.1
+
+**Status:** Phase 3 fully closed (Wave 3.3 added `spotify_search`
+and `media_control`). Tag parser hardened with loose-fallback
+regex after gpt-4o-mini emitted `<animation=thinking>` instead of
+`<animation>thinking</animation>` — system prompt got explicit
+"WRONG: ..." counter-examples. ROADMAP reorganized — Phase 2 and
+Phase 3 moved to Done; Phase 4 broken into four explicit waves
+(4.1 visual, 4.2 voice, 4.3 memory, 4.4 packaging) incorporating
+three new user notes:
+
+- "permanent memory to Violet" — covered by 4.3 SQLite + RAG
+- "better voice detection, listens weakly" — added to 4.2;
+  likely Whisper tiny → base/small + VAD tuning
+- "spotify play for .exe" — Spotify Web API (OAuth) lives in
+  4.4 as a prerequisite for packaging
+
+Now starting Wave 4.1 — visual polish. First item:
+face-proximity eye reset.
+
+**Tool registry (Phase 3 final):**
+  open_url, open_app, system_volume, lock_pc (deferred),
+  sleep_pc (deferred), spotify_search, media_control
+
+---
+
 ### 2026-05-24 (later) — Phase 3.2 closed; OpenAI swap verified in daily use
 
 **Status:** Wave 3.2 complete (all four PC tools landed). LLM

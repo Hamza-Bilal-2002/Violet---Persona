@@ -4,60 +4,44 @@ Working copy. Edit freely. Memory is the durable source of truth.
 
 ## Done
 
-- Monorepo with frontend (Three.js + VRM) + backend (FastAPI + Gemini) + Electron shell
-- Backend MVP: WebSocket dialogue, emotion/animation tags, no-emoji + concise rules
-- Animation cooldown on end (per-animation)
-- Lip-sync (browser TTS boundary pulses today; audio-driven analyser ready for swap)
-- Phase 1 Electron shell: frameless transparent 420×640 overlay + tray menu, no auto-DevTools, load-flash hidden
+- Monorepo: frontend (Three.js + VRM) + backend (FastAPI + OpenAI) + speech (Whisper tiny container) + wake (openwakeword container) + Electron shell
+- Backend dialogue with emotion/animation tags, no-emoji + concise rules. Loose-fallback tag parser recovers from model deviations.
+- Phase 1 Electron shell: frameless transparent overlay covering the work area + tray menu, no load-flash
 - Cursor head + eye tracking (raw bone, gated by idle state)
+- **Phase 2 — voice + fullscreen overlay (closed)**: wake word ("alexa" via openwakeword), PTT (Ctrl+Alt+V), STT (Whisper), voice-only input, click-through with cursor-over-avatar hit-test, BackendClient auto-reconnect with visible status, pause render loop when hidden, voice-input surfaces a hidden overlay, Docker stack auto-starts with Electron, wake on by default.
+- **Phase 3 — PC task automation (closed)**: 7 tools — `open_url`, `open_app`, `system_volume`, `lock_pc`, `sleep_pc`, `spotify_search`, `media_control`. Deferred-execution infrastructure for screen-interrupting tools so lock/sleep wait for the avatar to finish speaking.
+- LLM provider: OpenAI gpt-4o-mini (paid). Swapped from Gemini due to free-tier limits.
 
-## Phase 2 — Voice + fullscreen overlay
+## Phase 4 — Polish, persistence, packaging
 
-The two changes go together because removing the text input makes click-through essential.
+### 4.1 Visual polish
 
-- **Wake word**: Porcupine ("Violet"), runs locally in Electron, low CPU. Custom keyword trained at Picovoice console.
-- **Push-to-talk shortcut**: Global keyboard shortcut (default suggestion `Ctrl+Alt+V` — easy to remember, distinctive). Press to start listening, auto-stop on silence. Configurable later.
-- **Both PTT and wake word active simultaneously**; either path triggers the listen pipeline.
-- **STT**: Faster-Whisper as a sibling container. Mic captures until silence; audio posted to `/transcribe`; transcript flows into existing `/chat/ws`.
-- **Mic capture pipeline**: trigger (wake or PTT) → record → VAD silence detection → send → speak reply → hide window or stay visible per dwell timer.
-- **Fullscreen window**: BrowserWindow grows to full primary display; frameless + transparent + always-on-top stays. Avatar positioned bottom-right of the canvas, above the Windows taskbar tray.
-- **Click-through**: `setIgnoreMouseEvents(true, {forward: true})` by default. Per-frame raycast in renderer; when cursor over avatar mesh → re-enable mouse, else pass clicks through.
-- **Cursor tracking across full screen**: with `forward: true`, mousemove fires regardless of click-through state. Head/eye tracking finally covers the entire desktop, not just the small window bounds.
-- **Chat input UI removed**. Voice is the only input. (Keep ENABLE_TEST_DIALOGUE flag for dev fallback.)
-- **Reconnection logic** in BackendClient (small, free to add here).
+- Face-proximity eye reset — eyes gently snap to a neutral forward position when the cursor is close to or on the avatar's face (head keeps tracking)
+- Shrink unclickable border around the model — tighten the hit-test (smaller bounding sphere, or per-frame mesh raycast if perf allows)
+- Opacity-on-hover — material opacity fades when cursor approaches the avatar, with a tray toggle to disable
 
-## Phase 3 — PC task automation
+### 4.2 Voice quality
 
-- Gemini function calling: define tool schemas in backend (`play_spotify`, `add_calendar_event`, `set_alarm`, `open_app`, `system_volume`, etc.)
-- Backend sends `tool_call` frames; Electron renderer (or main process) executes locally; returns `tool_result`. Loop continues.
-- Start simple: open URL, open app by name, system volume, sleep PC. Then Spotify (URI scheme or Web API). Then Calendar (Outlook/Google API).
-- Tools execute in **Electron**, not in the Docker backend container (backend can't reach host apps).
+- **Piper TTS** container — biggest single voice upgrade. Activates the audio-driven `LipSyncManager.attachAudio()` path that's already built.
+- **Better voice input** — user reports listening is weak. Likely Whisper "tiny" → "base" or "small" model swap, plus VAD threshold tuning in `MicCapture.js`.
+- Lip-sync improvements — formant analysis on top of band amplitude. Only if Piper still feels mushy.
 
-## Phase 4 — Polish
+### 4.3 Memory and persistence
 
-- **Swap browser TTS → Piper** container. Big quality jump in voice. Activates the audio-driven `LipSyncManager.attachAudio()` path that's already built — no further lip-sync code change required.
-- **Opacity-on-hover**: cursor approaches the avatar → fade material opacity ~30% so it never feels like a popup blocking work, can be disabled from the tray menu.
-- **Conversation persistence**: SQLite-backed history so sessions survive restarts.
-- **RAG**: ChromaDB sibling container with personal docs/PDFs for factual recall.
-- **Reconnection polish**: exponential backoff, visible "reconnecting" state.
-- **Packaging**: electron-builder → single Windows installer (.exe). Tray icon promoted from placeholder to real artwork.
+- **SQLite conversation persistence** — Violet remembers context across app restarts. Currently the `ChatSession` resets on every WS reconnect.
+- **Long-term "permanent memory"** — RAG (ChromaDB sibling container) for personal docs, facts about the user, things she should always know. Different from per-conversation history.
 
-## Open ideas (capture, decide later)
+### 4.4 Final polish and packaging
 
-- Lip-sync further: formant analysis on top of band amplitude (cleaner vowel shapes). Only consider if Piper still feels mushy. (User suggestion 2026-05-22)
-- ElevenLabs/Azure TTS as a swap option — they emit visemes natively, would simplify lipsync. Cost > local.
-- Mobile companion via Tailscale (talk to backend from phone, no local tools).
-- Webcam-driven emotion sensing — detect user's expression, react.
+- More emotions and animations — content additions; FBX clips into `frontend/animations/` and system-prompt updates
+- Custom "Violet" wake word — replace the `alexa` placeholder via the openwakeword training Colab
+- MToon shader tuning / lighting pass — improve the model's look without changing geometry
+- **Spotify playback via Web API** — full programmatic play/queue (OAuth flow + token refresh). Prerequisite for the .exe release.
+- **electron-builder packaging** — single Windows `.exe` installer with real tray-icon artwork
 
-## Recently added user notes (2026-05-22)
+## Open ideas (defer)
 
-- Fullscreen click-through window (folded into Phase 2 — see above)
-- Cursor tracking across whole screen (folded into Phase 2)
-- update the eye tracking, if the cursor is really close to or ontop of the avatar's face (only face), gently reset the eyes back to default position. (polish phase)
-- Opacity-on-hover (Phase 4 polish)
-- Lip-sync improvements (after Phase 4 Piper swap — see Phase 4)
-- reminder for addition of more emotions and animations.
-- reducing the ammount of unclickable border around the model.
-- optamizing the processes whereever possible without sacrifizing any performance. following the best practises and not loading anything thats not needed.
-- when avatar is hidden, stop all animations to reduce work load.
-- add mtoon shaders or suggest better options for better model look. (phase 4).
+- ElevenLabs / Azure TTS swap option — they emit visemes natively, would simplify lipsync. Cost > local.
+- Mobile companion via Tailscale (talk to backend from phone)
+- Webcam-driven emotion sensing — detect user's expression, react
+- Calendar integration (Outlook COM or Google API) — deferred from Phase 3
