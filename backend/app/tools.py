@@ -185,4 +185,38 @@ LOCK_PC = {
 }
 
 
-TOOL_DECLARATIONS = [OPEN_URL, OPEN_APP, SYSTEM_VOLUME, LOCK_PC]
+SLEEP_PC = {
+    "type": "function",
+    "function": {
+        "name": "sleep_pc",
+        "description": (
+            "Put the user's PC to sleep. Screen turns off, RAM is "
+            "preserved, fans and disks spin down — typical low-"
+            "power suspend. The user wakes it by pressing any key, "
+            "moving the mouse, or pressing the power button.\n\n"
+            "Use for:\n"
+            "  'sleep' / 'go to sleep' / 'put my pc to sleep'\n"
+            "  'shut the screen off and idle' / 'standby'\n\n"
+            "Distinct from lock_pc — lock only secures the screen "
+            "and keeps everything running; sleep actually suspends "
+            "the machine. If the user says 'lock and sleep' or "
+            "wants both, prefer sleep_pc (sleeping already requires "
+            "auth on wake).\n\n"
+            "Do NOT use this for shut down, restart, or hibernate "
+            "— those will get dedicated tools later if needed."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+}
+
+
+TOOL_DECLARATIONS = [
+    OPEN_URL,
+    OPEN_APP,
+    SYSTEM_VOLUME,
+    LOCK_PC,
+    SLEEP_PC,
+]

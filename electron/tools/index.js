@@ -31,6 +31,7 @@ const openUrl = require('./openUrl');
 const openApp = require('./openApp');
 const systemVolume = require('./systemVolume');
 const lockPc = require('./lockPc');
+const sleepPc = require('./sleepPc');
 
 const REGISTRY = {
 
@@ -52,6 +53,13 @@ const REGISTRY = {
   lock_pc: {
     handler:
       lockPc,
+    deferred:
+      true,
+  },
+
+  sleep_pc: {
+    handler:
+      sleepPc,
     deferred:
       true,
   },
