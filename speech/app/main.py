@@ -31,7 +31,15 @@ from loguru import logger
 
 # ---- config -----------------------------------------------------------------
 
-MODEL_SIZE = "tiny"
+# "tiny" → "base" upgrade (Phase 4 Wave 4.2). Base is materially
+# more accurate on conversational and softly-spoken English at the
+# cost of ~1-2x decoding time per utterance and ~70MB more RAM —
+# still trivial on a modern desktop CPU. Bump to "small" if accuracy
+# still feels weak; "small" doubles latency again and uses ~500MB.
+# The "+ download time on first /transcribe call" cost stays unchanged
+# (weights persist in the named volume across rebuilds).
+
+MODEL_SIZE = "base"
 MODEL_DEVICE = "cpu"
 MODEL_COMPUTE_TYPE = "int8"
 MODEL_LANGUAGE = "en"
