@@ -58,6 +58,18 @@ EMOTION_TAG_LOOSE = re.compile(
     re.IGNORECASE,
 )
 
+# Defensive final scrub. Strips ANY remaining tag-shaped markup
+# whose tag name is "emotion" or "animation" — orphan closing
+# tags (</animation>), bare openers with no content (<emotion/>),
+# anything the strict + loose passes missed. Runs last in the
+# clean-text pipeline; anything matched here is logged so we can
+# iterate on the system prompt if it keeps happening.
+
+TAG_SCRUB = re.compile(
+    r"<\s*/?\s*(?:emotion|animation)\b[^>]*>",
+    re.IGNORECASE,
+)
+
 
 @dataclass
 class ParsedReply:
@@ -132,15 +144,26 @@ def parse_reply(raw: str) -> ParsedReply:
     cleaned = ANIMATION_TAG.sub("", cleaned)
     cleaned = EMOTION_TAG_LOOSE.sub("", cleaned)
     cleaned = ANIMATION_TAG_LOOSE.sub("", cleaned)
+
+    # Final defensive scrub for orphan / unmatched tag fragments
+    # the prior passes couldn't catch (e.g. a standalone </animation>
+    # at the end of the reply with no opener).
+
+    scrub_hits = TAG_SCRUB.findall(cleaned)
+    if scrub_hits:
+        cleaned = TAG_SCRUB.sub("", cleaned)
+
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
 
-    if used_loose_emotion or used_loose_animation:
+    if used_loose_emotion or used_loose_animation or scrub_hits:
         # Worth knowing — the model deviated from the spec. Surface
         # it so we can iterate on the system prompt if it persists.
         from loguru import logger
         logger.warning(
-            f"parse_reply: recovered from loose tag format "
-            f"(emotion={used_loose_emotion}, animation={used_loose_animation})"
+            f"parse_reply: recovered from tag deviation "
+            f"(loose_emotion={used_loose_emotion}, "
+            f"loose_animation={used_loose_animation}, "
+            f"orphan_scrub={len(scrub_hits)})"
         )
 
     return ParsedReply(
