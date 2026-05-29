@@ -145,13 +145,31 @@ class ChatSession:
     history fix).
     """
 
-    def __init__(self, client: "OpenAI", model: str) -> None:
+    def __init__(
+        self,
+        client: "OpenAI",
+        model: str,
+        seed_history: list[dict] | None = None,
+    ) -> None:
         self._client = client
         self._model = model
         # System message is index 0 forever. Trim_history preserves it.
         self._messages: list[dict] = [
             {"role": "system", "content": SYSTEM_PROMPT},
         ]
+        # Phase 4 Wave 4.3: replay persisted conversation history
+        # from SQLite (if any) so Violet remembers across backend
+        # restarts. Only user + assistant text turns are seeded;
+        # prior tool_call cycles are not preserved (see store.py).
+        if seed_history:
+            for entry in seed_history:
+                role = entry.get("role")
+                content = entry.get("content") or ""
+                if role in ("user", "assistant") and content:
+                    self._messages.append({
+                        "role": role,
+                        "content": content,
+                    })
         # Tool calls from the most recent assistant message. Cached
         # so send_function_responses can emit tool messages with the
         # right tool_call_ids in the right order.
@@ -299,15 +317,24 @@ class LLMClient:
         self._model = settings.OPENAI_MODEL
         logger.info(f"LLM provider: openai, model: {self._model}")
 
-    def create_session(self) -> ChatSession:
-        """Create a fresh chat session with no prior history. One
-        per WebSocket connection — the session accumulates history
-        across user turns internally."""
+    def create_session(
+        self,
+        seed_history: list[dict] | None = None,
+    ) -> ChatSession:
+        """Create a chat session, optionally seeded with persisted
+        history from the SQLite store. One session per WebSocket
+        connection — the session then accumulates further history
+        across user turns internally.
+        """
         if not self._configured:
             raise RuntimeError(
                 "OpenAI not configured. Set OPENAI_API_KEY in backend/.env"
             )
-        return ChatSession(self._openai, self._model)
+        return ChatSession(
+            self._openai,
+            self._model,
+            seed_history=seed_history,
+        )
 
 
 client = LLMClient()

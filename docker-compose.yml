@@ -22,6 +22,11 @@ services:
       # user-facing strings). read-only so the backend treats it as
       # immutable config, not data.
       - ./config:/app/config:ro
+      # Phase 4 Wave 4.3: persistent conversation store. SQLite DB
+      # lives at /data/violet.db — survives rebuilds via the named
+      # volume so Violet keeps her memory of you across container
+      # restarts.
+      - persona_data:/data
     restart: unless-stopped
     networks:
       - persona_net
@@ -95,3 +100,4 @@ networks:
 
 volumes:
   whisper_cache:
+  persona_data:

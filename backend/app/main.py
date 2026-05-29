@@ -48,6 +48,15 @@ from loguru import logger
 from .config import settings
 from .llm import client as llm_client
 from .protocol import parse_reply
+from .store import store as message_store
+
+
+# How many prior messages to replay from the SQLite store when a
+# new WebSocket connects. 60 entries ~ 30 turns, which is roughly
+# what fits comfortably in gpt-4o-mini's context without bloating
+# token spend. The session then accumulates new turns on top.
+
+SEED_HISTORY_LIMIT = 60
 
 
 # Tools should resolve quickly — open_url is effectively instant,
@@ -103,18 +112,23 @@ async def chat_ws(websocket: WebSocket):
     await websocket.accept()
     logger.info("client connected")
 
-    # One Gemini chat session per WebSocket. The session owns its
-    # full history — user messages, function_calls, function_responses,
-    # and assistant text — so multi-turn function-calling stays
-    # coherent. Rebuilding from a text-only history list per turn
-    # made the model forget that tools had been called, which
-    # produced "the site is already open" hallucinations on the
-    # second open-X request in a session.
+    # Phase 4 Wave 4.3: seed the new chat session with persisted
+    # history from the SQLite store, so Violet picks up where the
+    # last session left off across backend restarts.
+
+    seed_history = []
+    try:
+        seed_history = message_store.load_recent(limit=SEED_HISTORY_LIMIT)
+        logger.info(
+            f"loaded {len(seed_history)} prior messages from store"
+        )
+    except Exception:
+        logger.exception("could not load message history; starting fresh")
 
     try:
-        session = llm_client.create_session()
+        session = llm_client.create_session(seed_history=seed_history)
     except Exception as e:
-        logger.exception("could not create Gemini chat session")
+        logger.exception("could not create chat session")
         await websocket.send_text(
             json.dumps({"type": "error", "message": f"LLM init failed: {e}"})
         )
@@ -159,6 +173,17 @@ async def chat_ws(websocket: WebSocket):
             )
 
             await websocket.send_text(json.dumps(parsed.to_dict()))
+
+            # Phase 4 Wave 4.3: append this turn to the persistent
+            # store. We persist the RAW final_text (with tags) so
+            # the model sees its own prior tag formatting on
+            # reload — same shape that lives inside session.
+
+            try:
+                message_store.append("user", user_text)
+                message_store.append("assistant", final_text)
+            except Exception:
+                logger.exception("failed to persist turn — continuing")
 
             session.trim_history(MAX_HISTORY_ENTRIES)
 
