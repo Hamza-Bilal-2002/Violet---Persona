@@ -28,7 +28,7 @@ from pydantic import BaseModel
 
 # ---- config -----------------------------------------------------------------
 
-VOICE_NAME = "en_US-amy-medium"
+VOICE_NAME = "en_US-hfc_female-medium"
 VOICE_DIR = Path("/models")
 VOICE_MODEL_PATH = VOICE_DIR / f"{VOICE_NAME}.onnx"
 VOICE_CONFIG_PATH = VOICE_DIR / f"{VOICE_NAME}.onnx.json"
