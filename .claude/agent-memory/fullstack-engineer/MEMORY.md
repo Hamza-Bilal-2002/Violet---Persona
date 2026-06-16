@@ -1,1 +1,0 @@
-- [Speech container](project_speech_container.md) — speech/ sibling service, faster-whisper tiny on port 8002, model-swap path documented in Dockerfile + main.py
