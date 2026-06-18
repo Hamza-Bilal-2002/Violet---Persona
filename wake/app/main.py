@@ -29,8 +29,8 @@ from loguru import logger
 
 # ---- config -----------------------------------------------------------------
 
-WAKE_MODELS = ["alexa"]
-DETECTION_THRESHOLD = 0.5
+WAKE_MODELS = ["hey_jarvis"]
+DETECTION_THRESHOLD = 0.35
 INFERENCE_FRAMEWORK = "onnx"
 
 

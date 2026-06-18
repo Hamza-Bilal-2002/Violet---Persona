@@ -39,7 +39,7 @@ from loguru import logger
 # The "+ download time on first /transcribe call" cost stays unchanged
 # (weights persist in the named volume across rebuilds).
 
-MODEL_SIZE = "base"
+MODEL_SIZE = "small"
 MODEL_DEVICE = "cpu"
 MODEL_COMPUTE_TYPE = "int8"
 MODEL_LANGUAGE = "en"
