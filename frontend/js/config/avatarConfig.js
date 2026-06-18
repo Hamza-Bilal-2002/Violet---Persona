@@ -85,14 +85,10 @@ export const AVATAR_CONFIG = {
 
   lighting: {
 
-    // Warm-white ambient. Slightly off pure-white so skin and fabric
-    // read warmer under toon shading without the ground-color darkening
-    // that HemisphereLight causes on anime VRM models.
-
     ambient: {
 
       color:
-        0xfff8f0,
+        0xffffff,
 
       intensity:
         1.2,
@@ -112,28 +108,6 @@ export const AVATAR_CONFIG = {
         x: 1,
         y: 2,
         z: 3,
-
-      },
-
-    },
-
-    // Rim / backlight — cool blue-white from behind-left-above.
-    // On a transparent overlay this edge highlight separates the
-    // avatar from whatever is behind her and gives her depth.
-
-    rim: {
-
-      color:
-        0xaad4ff,  // cool blue-white
-
-      intensity:
-        0.35,
-
-      position: {
-
-        x: -2,
-        y: 3,
-        z: -2,
 
       },
 
@@ -248,7 +222,7 @@ export const AVATAR_CONFIG = {
       480,
 
     marginRight:
-      24,
+      500,
 
     marginBottom:
       10,
