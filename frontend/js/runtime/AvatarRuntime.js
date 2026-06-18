@@ -667,9 +667,106 @@ export class AvatarRuntime {
 
     }
 
+    // Electron text input — pretty pill input anchored below the avatar,
+    // toggled via the tray "Text Input" checkbox. Hidden by default.
+
+    if (this._isElectron) {
+
+      this._mountElectronTextInput();
+
+    }
+
     console.log(
       'VRM Runtime Ready'
     );
+
+  }
+
+  _mountElectronTextInput() {
+
+    // Inject placeholder colour — can't set ::placeholder via inline style.
+
+    const style = document.createElement('style');
+
+    style.textContent =
+      '.persona-text-input::placeholder { color: rgba(255,255,255,0.32); }';
+
+    document.head.appendChild(style);
+
+    const input = document.createElement('input');
+    input.type        = 'text';
+    input.placeholder = 'Message Violet…';
+
+    // Class used by the click-through hit-test to keep the input
+    // interactive even while the overlay is in pass-through mode.
+
+    input.className = 'persona-text-input';
+
+    Object.assign(input.style, {
+      position:        'fixed',
+      bottom:          '14px',
+      right:           '24px',
+      width:           '256px',
+      padding:         '7px 14px',
+      borderRadius:    '20px',
+      border:          '1px solid rgba(255,255,255,0.12)',
+      background:      'rgba(0,0,0,0.28)',
+      backdropFilter:  'blur(6px)',
+      color:           'rgba(255,255,255,0.88)',
+      fontSize:        '12px',
+      letterSpacing:   '0.01em',
+      outline:         'none',
+      boxSizing:       'border-box',
+      display:         'none',
+      zIndex:          '999999',
+      webkitAppRegion: 'no-drag',
+    });
+
+    input.addEventListener('keydown', (e) => {
+
+      if (e.key !== 'Enter') return;
+
+      const text = input.value.trim();
+
+      if (!text) return;
+
+      this.backendClient.send(text);
+
+      input.value = '';
+
+    });
+
+    document.body.appendChild(input);
+
+    this._electronTextInput = input;
+
+    // Wire the tray toggle sent from ipc.js on persona:ready and on
+    // each subsequent tray checkbox click.
+
+    if (
+      window.personaShell &&
+      typeof window.personaShell.onTextInputToggle === 'function'
+    ) {
+
+      window.personaShell.onTextInputToggle(
+        (enabled) => {
+
+          input.style.display =
+            enabled ? 'block' : 'none';
+
+          // When shown, focus the input immediately so the user
+          // can start typing without an extra click.
+
+          if (enabled) {
+
+            setTimeout(() => input.focus(), 50);
+
+          }
+
+        }
+      );
+
+    }
 
   }
 
@@ -1002,7 +1099,7 @@ export class AvatarRuntime {
 
       const uiHit =
         elAtPoint.closest(
-          '.lil-gui'
+          '.lil-gui, .persona-text-input'
         );
 
       if (uiHit) {

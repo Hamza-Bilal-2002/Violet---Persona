@@ -7,7 +7,7 @@
 const { ipcMain } = require('electron');
 
 const { getMainWindow } = require('./window');
-const { isWakeWordEnabled, isOpacityOnHoverEnabled } = require('./tray');
+const { isWakeWordEnabled, isOpacityOnHoverEnabled, isTextInputEnabled } = require('./tray');
 const tools = require('./tools');
 
 function registerIpcHandlers() {
@@ -113,6 +113,11 @@ function registerIpcHandlers() {
       mainWindow.webContents.send(
         'persona:toggle-opacity-on-hover',
         isOpacityOnHoverEnabled()
+      );
+
+      mainWindow.webContents.send(
+        'persona:toggle-text-input',
+        isTextInputEnabled()
       );
 
       if (mainWindow.isVisible()) {

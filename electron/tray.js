@@ -47,6 +47,12 @@ let wakeWordEnabled = true;
 
 let opacityOnHoverEnabled = false;
 
+// Text input overlay — togglable from the tray so Violet can be
+// typed at without a mic (e.g. office / silent environment).
+// Default OFF.
+
+let textInputEnabled = false;
+
 function rebuildTrayMenu() {
 
   if (!tray) {
@@ -77,6 +83,26 @@ function rebuildTrayMenu() {
           mainWindow.webContents.send(
             'persona:toggle-wake-word',
             wakeWordEnabled
+          );
+
+        }
+
+      },
+    },
+
+    {
+      label: 'Text Input',
+      type: 'checkbox',
+      checked: textInputEnabled,
+      click: (menuItem) => {
+
+        textInputEnabled = menuItem.checked;
+
+        if (mainWindow) {
+
+          mainWindow.webContents.send(
+            'persona:toggle-text-input',
+            textInputEnabled
           );
 
         }
@@ -241,8 +267,13 @@ function isOpacityOnHoverEnabled() {
   return opacityOnHoverEnabled;
 }
 
+function isTextInputEnabled() {
+  return textInputEnabled;
+}
+
 module.exports = {
   createTray,
   isWakeWordEnabled,
   isOpacityOnHoverEnabled,
+  isTextInputEnabled,
 };
