@@ -516,7 +516,7 @@ export class AvatarRuntime {
 
           mat.outlineWidthMode   = 'worldCoordinates';
           mat.outlineWidthFactor = 0.002;
-          mat.outlineColorFactor?.setRGB(0.12, 0.08, 0.1);
+          mat.outlineColorFactor?.setRGB(0.55, 0.5, 0.52);
 
           mat.needsUpdate        = true;
 
