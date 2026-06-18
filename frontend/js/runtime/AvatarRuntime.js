@@ -477,6 +477,56 @@ export class AvatarRuntime {
     );
 
     // ======================
+    // MTOON SHADER TUNING
+    // ======================
+    //
+    // MToon exposes its own lighting model on top of Three.js lights.
+    // These settings are set once after load and never change at
+    // runtime, so the traverse cost is paid only here.
+    //
+    // shadingToonyFactor  — 0 = hard cel-shading, 1 = smooth gradient.
+    //   Dropping from the VRM default (~0.9) to 0.85 gives a slightly
+    //   crisper toon boundary without going full hard-edge anime.
+    //
+    // rimLightingMixFactor — Fresnel-based edge shimmer built into
+    //   MToon, independent of Three.js lights. 0 = off, 1 = full.
+    //   rimColorFactor is the tint applied to that shimmer.
+    //
+    // outlineWidthFactor  — MToon renders a second backface-extruded
+    //   pass for the ink outline. worldCoordinates mode keeps the
+    //   outline thickness consistent regardless of zoom distance.
+
+    this.currentVRM.scene.traverse(
+      (obj) => {
+
+        if (!obj.isMesh) return;
+
+        const mats =
+          Array.isArray(obj.material)
+            ? obj.material
+            : [obj.material];
+
+        for (const mat of mats) {
+
+          if (!mat?.isMToonMaterial) continue;
+
+          mat.shadingToonyFactor      = 0.85;
+
+          mat.rimLightingMixFactor    = 0.3;
+          mat.rimColorFactor.setRGB(0.7, 0.8, 1.0);
+
+          mat.outlineWidthMode        = 'worldCoordinates';
+          mat.outlineWidthFactor      = 0.003;
+          mat.outlineColorFactor.setRGB(0.15, 0.1, 0.12);
+
+          mat.needsUpdate             = true;
+
+        }
+
+      }
+    );
+
+    // ======================
     // SHOW MODEL
     // ======================
 

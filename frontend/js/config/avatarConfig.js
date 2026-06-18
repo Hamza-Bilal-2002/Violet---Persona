@@ -85,15 +85,27 @@ export const AVATAR_CONFIG = {
 
   lighting: {
 
-    ambient: {
+    // Hemisphere replaces flat AmbientLight. Sky color (warm white)
+    // hits tops of surfaces; ground color (cool blue-grey) hits
+    // undersides — gives a subtle indoor-ambient gradient that reads
+    // as natural ceiling + floor bounce without any background needed.
 
-      color:
-        0xffffff,
+    hemisphere: {
+
+      skyColor:
+        0xfff4e0,  // warm white — like an overhead LED panel
+
+      groundColor:
+        0x8899bb,  // cool blue-grey — floor/desk bounce
 
       intensity:
-        1.2,
+        0.9,
 
     },
+
+    // Primary key light. Kept front-right-above. Intensity dropped
+    // from 1.2 — the old value plus ambient 1.2 was causing blowout
+    // that washed out MToon's toon-shading character.
 
     directional: {
 
@@ -101,13 +113,36 @@ export const AVATAR_CONFIG = {
         0xffffff,
 
       intensity:
-        1.2,
+        0.8,
 
       position: {
 
         x: 1,
         y: 2,
         z: 3,
+
+      },
+
+    },
+
+    // Rim / backlight — cool blue-white from behind-left-above.
+    // On a transparent overlay this is the highest-impact single
+    // change: edge separation makes the avatar feel like she exists
+    // in 3D space rather than floating on a flat canvas.
+
+    rim: {
+
+      color:
+        0xaad4ff,  // cool blue-white — reads as "window light"
+
+      intensity:
+        0.5,
+
+      position: {
+
+        x: -2,
+        y: 3,
+        z: -2,
 
       },
 
