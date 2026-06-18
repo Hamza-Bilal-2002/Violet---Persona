@@ -612,28 +612,45 @@ function setupPositionGUI(gui) {
 
   const ti = AVATAR_CONFIG.textInput;
 
+  const AVATAR_DEFAULTS = { marginRight: 500, marginBottom: 10 };
+  const INPUT_DEFAULTS  = { offsetX: 0, offsetY: 0 };
+
   const state = {
-    marginRight:    v.marginRight,
-    marginBottom:   v.marginBottom,
-    textInputX:     ti.offsetX,
-    textInputY:     ti.offsetY,
+    marginRight:  v.marginRight,
+    marginBottom: v.marginBottom,
+    textInputX:   ti.offsetX,
+    textInputY:   ti.offsetY,
   };
 
-  folder.add(state, 'marginRight', 0, 1200, 1)
+  const ctrlRight = folder.add(state, 'marginRight', -600, 1200, 1)
     .name('Avatar Offset Right')
     .onChange((val) => { AVATAR_CONFIG.viewport.marginRight = val; });
 
-  folder.add(state, 'marginBottom', 0, 200, 1)
+  const ctrlBottom = folder.add(state, 'marginBottom', -400, 400, 1)
     .name('Avatar Offset Bottom')
     .onChange((val) => { AVATAR_CONFIG.viewport.marginBottom = val; });
 
-  folder.add(state, 'textInputX', -400, 400, 1)
+  folder.add({
+    reset: () => {
+      ctrlRight.setValue(AVATAR_DEFAULTS.marginRight);
+      ctrlBottom.setValue(AVATAR_DEFAULTS.marginBottom);
+    },
+  }, 'reset').name('Reset Avatar Position');
+
+  const ctrlTiX = folder.add(state, 'textInputX', -600, 600, 1)
     .name('Textbox Nudge X')
     .onChange((val) => { AVATAR_CONFIG.textInput.offsetX = val; });
 
-  folder.add(state, 'textInputY', -200, 200, 1)
+  const ctrlTiY = folder.add(state, 'textInputY', -400, 400, 1)
     .name('Textbox Nudge Y')
     .onChange((val) => { AVATAR_CONFIG.textInput.offsetY = val; });
+
+  folder.add({
+    reset: () => {
+      ctrlTiX.setValue(INPUT_DEFAULTS.offsetX);
+      ctrlTiY.setValue(INPUT_DEFAULTS.offsetY);
+    },
+  }, 'reset').name('Reset Textbox Position');
 
   folder.close();
 
