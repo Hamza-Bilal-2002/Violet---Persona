@@ -13,6 +13,8 @@ const {
   shell,
 } = require('electron');
 
+const spotify = require('./spotify');
+
 const {
   AGENT_NAME,
   TRAY_ICON_PATH,
@@ -174,6 +176,30 @@ function rebuildTrayMenu() {
 
         // Truth is updated via the devtools-opened/closed
         // listeners; rebuildTrayMenu re-runs there.
+
+      },
+    },
+
+    { type: 'separator' },
+
+    {
+      label: spotify.isAuthenticated()
+        ? 'Spotify: Connected ✓'
+        : 'Connect Spotify',
+      click: () => {
+
+        if (spotify.isAuthenticated()) {
+          return; // already connected — no-op
+        }
+
+        spotify.authenticate()
+          .then(() => {
+            // Rebuild so the label flips to "Connected ✓"
+            rebuildTrayMenu();
+          })
+          .catch((err) => {
+            console.error('[tray] Spotify auth failed:', err.message);
+          });
 
       },
     },

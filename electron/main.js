@@ -13,6 +13,7 @@
 //   - the OS lifecycle conventions (window-all-closed, activate)
 
 const { app, BrowserWindow } = require('electron');
+const path = require('path');
 
 const { createWindow } = require('./window');
 const { createTray } = require('./tray');
@@ -22,6 +23,7 @@ const {
   unregisterAllGlobalShortcuts,
 } = require('./globalShortcut');
 const { startBackendContainers } = require('./dockerCompose');
+const spotify = require('./spotify');
 
 // ----------------------------------------------------------------------
 // Pre-ready switches.
@@ -37,11 +39,59 @@ app.commandLine.appendSwitch(
   'CalculateNativeWinOcclusion'
 );
 
+// ── Spotify: single-instance lock + custom protocol ───────────────────────────
+//
+// requestSingleInstanceLock() ensures only one Electron process runs.
+// When the OS routes violet://callback back to the app after Spotify login,
+// Windows launches a second instance — that instance immediately hands the
+// URL to the already-running one via the 'second-instance' event, then quits.
+
+const gotLock = app.requestSingleInstanceLock();
+
+if (!gotLock) {
+  // We are the second instance — forward the URL and exit immediately.
+  app.quit();
+}
+
+app.on('second-instance', (_event, commandLine) => {
+  const url = commandLine.find((arg) => arg.startsWith('violet://'));
+  if (url) {
+    spotify.handleCallback(url);
+  }
+});
+
+// Register violet:// as the custom protocol for this executable.
+// In dev mode (process.defaultApp truthy) Electron needs the script
+// path passed as an extra arg so Windows registers the right command.
+
+if (process.defaultApp) {
+  app.setAsDefaultProtocolClient(
+    'violet',
+    process.execPath,
+    [path.resolve(process.argv[1])]
+  );
+} else {
+  app.setAsDefaultProtocolClient('violet');
+}
+
+// Also handle the case where the app was launched directly via the
+// violet:// URL (first launch after Spotify redirects).
+
+const initialUrl = process.argv.find((arg) => arg.startsWith('violet://'));
+if (initialUrl) {
+  app.whenReady().then(() => spotify.handleCallback(initialUrl));
+}
+
 // ----------------------------------------------------------------------
 // Wiring.
 // ----------------------------------------------------------------------
 
 app.whenReady().then(() => {
+
+  // Load any saved Spotify tokens from the previous session so the
+  // user doesn't have to re-authenticate every time.
+
+  spotify.loadTokens();
 
   // Bring up the backend stack first, fire-and-forget. The renderer's
   // BackendClient + WakeWordClient have their own reconnect logic, so

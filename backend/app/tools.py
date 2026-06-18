@@ -213,26 +213,23 @@ SLEEP_PC = {
 }
 
 
-SPOTIFY_SEARCH = {
+SPOTIFY_PLAY = {
     "type": "function",
     "function": {
-        "name": "spotify_search",
+        "name": "spotify_play",
         "description": (
-            "Open Spotify and run a search for the given query — "
-            "song, artist, album, podcast, playlist. Use this for "
-            "requests like:\n"
-            "  'play despacito' / 'put on bohemian rhapsody'\n"
-            "  'find some lo-fi beats' / 'search for the weeknd'\n"
-            "  'open spotify and look for daft punk'\n\n"
-            "The Spotify desktop app launches (or comes to focus if "
-            "already running) with the search results. Playback "
-            "still requires a separate media_control('play') call "
-            "— the URI scheme alone can't trigger play, only "
-            "search. So when the user wants to actually start "
-            "music, call spotify_search FIRST and media_control "
-            "with action='play' RIGHT AFTER in the same turn.\n\n"
-            "Do NOT use this just to open the Spotify app with no "
-            "search target — use open_app('spotify') for that."
+            "Search Spotify and immediately start playing the result. "
+            "Use this whenever the user wants to play music:\n"
+            "  'play Blinding Lights' → query='Blinding Lights', type='track'\n"
+            "  'put on The Weeknd' → query='The Weeknd', type='artist'\n"
+            "  'play the Inception soundtrack' → query='Inception', type='album'\n"
+            "  'play a lo-fi playlist' → query='lo-fi', type='playlist'\n\n"
+            "IMPORTANT: Spotify must be open on a device (PC, phone, etc.) "
+            "for playback to work. If it isn't open, use open_app('spotify') "
+            "first, wait a moment, then call spotify_play.\n\n"
+            "Do NOT combine with media_control — spotify_play starts "
+            "playback directly. Do NOT use for pausing, skipping, or "
+            "volume — use spotify_control for those."
         ),
         "parameters": {
             "type": "object",
@@ -240,13 +237,69 @@ SPOTIFY_SEARCH = {
                 "query": {
                     "type": "string",
                     "description": (
-                        "Free-text search query. Song name, "
-                        "artist, album, podcast — whatever the "
-                        "user said. URL-encoded by the executor."
+                        "What to search for — song name, artist, "
+                        "album title, or playlist description. "
+                        "Use the user's exact words."
                     ),
+                },
+                "type": {
+                    "type": "string",
+                    "description": (
+                        "What kind of result to look for. "
+                        "Defaults to 'track' if omitted."
+                    ),
+                    "enum": ["track", "artist", "album", "playlist"],
                 },
             },
             "required": ["query"],
+        },
+    },
+}
+
+
+SPOTIFY_CONTROL = {
+    "type": "function",
+    "function": {
+        "name": "spotify_control",
+        "description": (
+            "Control Spotify playback. Use this for pause, resume, "
+            "skip, previous track, volume changes, or to find out "
+            "what's currently playing.\n\n"
+            "Actions:\n"
+            "  pause        — pause whatever is playing\n"
+            "  resume       — resume / unpause\n"
+            "  next         — skip to the next track\n"
+            "  previous     — go back to the previous track\n"
+            "  volume       — set Spotify volume to an exact % "
+                             "(requires volume_percent)\n"
+            "  current_track — get the currently playing track info\n\n"
+            "Use spotify_play (not resume) when the user wants to play "
+            "something specific. Use resume only when they say "
+            "'resume', 'unpause', or 'continue'."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": [
+                        "pause",
+                        "resume",
+                        "next",
+                        "previous",
+                        "volume",
+                        "current_track",
+                    ],
+                },
+                "volume_percent": {
+                    "type": "integer",
+                    "description": (
+                        "Target volume 0–100. Required when "
+                        "action is 'volume', ignored otherwise."
+                    ),
+                },
+            },
+            "required": ["action"],
         },
     },
 }
@@ -302,6 +355,7 @@ TOOL_DECLARATIONS = [
     SYSTEM_VOLUME,
     LOCK_PC,
     SLEEP_PC,
-    SPOTIFY_SEARCH,
+    SPOTIFY_PLAY,
+    SPOTIFY_CONTROL,
     MEDIA_CONTROL,
 ]
