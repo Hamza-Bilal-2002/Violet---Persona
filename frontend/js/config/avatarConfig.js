@@ -92,12 +92,16 @@ export const AVATAR_CONFIG = {
     ambient: {
 
       color:
-        0xfff8f0,  // very slightly warm white
+        0xfff8f0,
 
       intensity:
-        0.9,
+        1.2,
 
     },
+
+    // Shifted from (1,2,3) to (2,2,1) — more to the right and less
+    // front-on so the light grazes the face from the side rather than
+    // hitting it straight-on. Same intensity keeps the hair shadow filled.
 
     directional: {
 
@@ -109,9 +113,9 @@ export const AVATAR_CONFIG = {
 
       position: {
 
-        x: 1,
+        x: 2,
         y: 2,
-        z: 3,
+        z: 1,
 
       },
 
