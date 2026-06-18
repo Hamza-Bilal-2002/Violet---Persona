@@ -120,37 +120,74 @@ SYSTEM_VOLUME = {
         "name": "system_volume",
         "description": (
             "Adjust the user's system volume. Use this for any "
-            "request to make the PC louder or quieter — 'volume "
-            "up', 'turn it down', 'louder', 'quieter', 'mute', "
-            "'unmute', 'silence the PC', etc.\n\n"
-            "Three actions:\n"
-            "  up    — raise the volume\n"
-            "  down  — lower the volume\n"
-            "  mute  — toggle mute (calling 'mute' again unmutes)\n\n"
-            "For 'up' and 'down', choose a 'steps' value based on "
-            "how much change the user wants. Each step is roughly "
-            "a 2% change in master volume.\n"
-            "  'volume up' / 'a bit louder'        -> steps: 3\n"
-            "  'volume up a lot' / 'much louder'   -> steps: 8\n"
-            "  'just a tiny bit louder'            -> steps: 1\n"
-            "  'maximum volume' / 'as loud as it goes' -> steps: 50\n"
-            "For 'mute', steps is ignored — it's a single toggle."
+            "request to make the PC louder or quieter.\n\n"
+            "Four actions:\n"
+            "  up    — raise the volume by a number of steps (~2% each)\n"
+            "  down  — lower the volume by a number of steps\n"
+            "  mute  — toggle mute on/off\n"
+            "  set   — set volume to an exact percentage (0-100)\n\n"
+            "Use 'set' when the user says an exact number:\n"
+            "  'set volume to 50%'  -> action='set', level=50\n"
+            "  'volume at 20'       -> action='set', level=20\n\n"
+            "Use 'up'/'down' for relative requests:\n"
+            "  'volume up'          -> steps: 3\n"
+            "  'much louder'        -> steps: 8\n"
+            "  'just a tiny bit'    -> steps: 1\n"
+            "  'maximum volume'     -> steps: 50\n\n"
+            "For 'mute', steps and level are ignored."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "action": {
                     "type": "string",
-                    "description": "One of: 'up', 'down', 'mute'.",
-                    "enum": ["up", "down", "mute"],
+                    "description": "One of: 'up', 'down', 'mute', 'set'.",
+                    "enum": ["up", "down", "mute", "set"],
                 },
                 "steps": {
                     "type": "integer",
                     "description": (
-                        "Number of 2%-volume steps to apply "
-                        "(1-50). Defaults to 3 if omitted. Ignored "
-                        "for 'mute'."
+                        "Number of ~2% steps for 'up'/'down' (1-50). "
+                        "Defaults to 3. Ignored for 'mute' and 'set'."
                     ),
+                },
+                "level": {
+                    "type": "integer",
+                    "description": (
+                        "Target volume 0-100. Required for 'set', "
+                        "ignored otherwise."
+                    ),
+                },
+            },
+            "required": ["action"],
+        },
+    },
+}
+
+
+MIC_MUTE = {
+    "type": "function",
+    "function": {
+        "name": "mic_mute",
+        "description": (
+            "Mute, unmute, or toggle the user's default microphone. "
+            "Use this for any request about the mic input:\n"
+            "  'mute my mic' / 'disable the microphone' → action='mute'\n"
+            "  'unmute the mic' / 'turn mic back on'    → action='unmute'\n"
+            "  'toggle the microphone'                  → action='toggle'\n"
+            "  'is my mic muted?'                       → action='get'\n\n"
+            "This sets the system-level mute on the default Windows "
+            "capture device — the same toggle as the taskbar volume mixer. "
+            "Does NOT affect Violet's own wake-word listener; use the "
+            "tray 'Wake Word' checkbox for that."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "description": "One of: 'get', 'mute', 'unmute', 'toggle'.",
+                    "enum": ["get", "mute", "unmute", "toggle"],
                 },
             },
             "required": ["action"],
@@ -397,6 +434,7 @@ TOOL_DECLARATIONS = [
     OPEN_APP,
     SYSTEM_VOLUME,
     BRIGHTNESS,
+    MIC_MUTE,
     LOCK_PC,
     SLEEP_PC,
     SPOTIFY_PLAY,

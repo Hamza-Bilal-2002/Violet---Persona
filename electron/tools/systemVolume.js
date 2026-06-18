@@ -1,26 +1,18 @@
-// system_volume tool — raise / lower / mute the master volume.
+// system_volume tool — raise / lower / mute / set the master volume.
 //
-// We shell out to PowerShell and send virtual key codes via the
-// WScript.Shell COM object:
+// up / down / mute use WScript.Shell SendKeys (virtual key codes):
 //   0xAF (175) — Volume Up
 //   0xAE (174) — Volume Down
 //   0xAD (173) — Volume Mute (toggle)
+// SendKeys is fast (~150ms) and requires no native modules.
 //
-// Windows special-cases media keys system-wide, so SendKeys works
-// even when no app is in focus. Each up/down press is ~2% on the
-// master volume; mute is a toggle.
-//
-// Why SendKeys via PowerShell (not a native module): no node-gyp
-// build step, no Visual Studio dependency, no extra binary in the
-// install. PowerShell ships with Windows and starts in ~150ms,
-// which is well below the conversational latency floor anyway.
-//
-// Absolute level control (e.g., "set volume to 50%") is intentionally
-// out of scope for this tool — it needs CoreAudio P/Invoke which is
-// a meaningful jump in complexity. Punted to Wave 3.3.
+// set uses the Windows Core Audio API via PowerShell inline C#
+// (_coreAudio.js) to land on an exact percentage, since SendKeys
+// can only nudge by ~2% increments.
 
 const { exec } = require('child_process');
 const { promisify } = require('util');
+const { runPs } = require('./_coreAudio');
 
 const execAsync =
   promisify(exec);
@@ -54,9 +46,20 @@ async function systemVolume(args) {
   if (!action) {
 
     throw new Error(
-      'action is required ("up", "down", or "mute")'
+      'action is required ("up", "down", "mute", or "set")'
     );
 
+  }
+
+  // Exact percentage — use Core Audio API instead of SendKeys.
+  if (action === 'set') {
+    const raw = Number(args && args.level);
+    if (!Number.isFinite(raw)) {
+      throw new Error('level (0-100) is required for action "set"');
+    }
+    const level = Math.max(0, Math.min(100, Math.round(raw)));
+    await runPs(`[AudioHelper]::SetVolume(${level})`);
+    return { action: 'set', level };
   }
 
   const code =

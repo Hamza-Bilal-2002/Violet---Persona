@@ -31,6 +31,7 @@ const openUrl = require('./openUrl');
 const openApp = require('./openApp');
 const systemVolume = require('./systemVolume');
 const brightness     = require('./brightness');
+const micMute        = require('./micMute');
 const lockPc = require('./lockPc');
 const sleepPc = require('./sleepPc');
 const spotifyPlay    = require('./spotifyPlay');
@@ -57,6 +58,11 @@ const REGISTRY = {
   brightness: {
     handler:
       brightness,
+  },
+
+  mic_mute: {
+    handler:
+      micMute,
   },
 
   lock_pc: {
