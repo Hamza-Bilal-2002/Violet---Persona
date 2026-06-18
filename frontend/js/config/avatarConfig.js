@@ -95,7 +95,7 @@ export const AVATAR_CONFIG = {
         0xfff8f0,  // very slightly warm white
 
       intensity:
-        1.0,
+        1.2,
 
     },
 
