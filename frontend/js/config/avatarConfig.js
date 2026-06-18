@@ -105,7 +105,7 @@ export const AVATAR_CONFIG = {
         0xffffff,
 
       intensity:
-        1.1,
+        1.2,
 
       position: {
 
