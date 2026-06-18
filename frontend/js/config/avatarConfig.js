@@ -85,27 +85,22 @@ export const AVATAR_CONFIG = {
 
   lighting: {
 
-    // Hemisphere replaces flat AmbientLight. Sky color (warm white)
-    // hits tops of surfaces; ground color (cool blue-grey) hits
-    // undersides — gives a subtle indoor-ambient gradient that reads
-    // as natural ceiling + floor bounce without any background needed.
+    // Warm-white ambient. Slightly off pure-white so skin and fabric
+    // read warmer under toon shading without the ground-color darkening
+    // that HemisphereLight causes on anime VRM models.
 
-    hemisphere: {
+    ambient: {
 
-      skyColor:
-        0xfff4e0,  // warm white — like an overhead LED panel
-
-      groundColor:
-        0x8899bb,  // cool blue-grey — floor/desk bounce
+      color:
+        0xfff8f0,  // very slightly warm white
 
       intensity:
-        0.9,
+        1.0,
 
     },
 
-    // Primary key light. Kept front-right-above. Intensity dropped
-    // from 1.2 — the old value plus ambient 1.2 was causing blowout
-    // that washed out MToon's toon-shading character.
+    // Primary key light, front-right-above. Kept at 1.0 so the toon
+    // shading shadow boundary is clearly visible without blowout.
 
     directional: {
 
@@ -113,7 +108,7 @@ export const AVATAR_CONFIG = {
         0xffffff,
 
       intensity:
-        0.8,
+        1.0,
 
       position: {
 
@@ -126,17 +121,16 @@ export const AVATAR_CONFIG = {
     },
 
     // Rim / backlight — cool blue-white from behind-left-above.
-    // On a transparent overlay this is the highest-impact single
-    // change: edge separation makes the avatar feel like she exists
-    // in 3D space rather than floating on a flat canvas.
+    // On a transparent overlay this edge highlight separates the
+    // avatar from whatever is behind her and gives her depth.
 
     rim: {
 
       color:
-        0xaad4ff,  // cool blue-white — reads as "window light"
+        0xaad4ff,  // cool blue-white
 
       intensity:
-        0.5,
+        0.35,
 
       position: {
 

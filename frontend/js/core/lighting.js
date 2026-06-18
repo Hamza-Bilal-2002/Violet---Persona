@@ -12,36 +12,30 @@ export function setupLighting(
     AVATAR_CONFIG.lighting;
 
   // ======================
-  // HEMISPHERE (ambient)
+  // AMBIENT
   // ======================
   //
-  // Replaces flat AmbientLight. Sky color hits the tops of surfaces;
-  // ground color hits undersides. Together they produce a natural
-  // warm-ceiling / cool-floor gradient that reads as indoor ambient
-  // light even with no background behind the avatar.
+  // Slightly warm white (0xfff8f0) rather than pure white — skin and
+  // fabric read warmer under MToon toon shading. HemisphereLight was
+  // tried but its ground-color darkening looks wrong on anime VRM
+  // models that rely on flat toon shading.
 
-  const hemiLight =
-    new THREE.HemisphereLight(
+  const ambientLight =
+    new THREE.AmbientLight(
 
-      config.hemisphere.skyColor,
+      config.ambient.color,
 
-      config.hemisphere.groundColor,
-
-      config.hemisphere.intensity
+      config.ambient.intensity
 
     );
 
   scene.add(
-    hemiLight
+    ambientLight
   );
 
   // ======================
   // DIRECTIONAL (key)
   // ======================
-  //
-  // Primary light, front-right-above. Intensity reduced from 1.2 to
-  // 0.8 — the old value plus ambient 1.2 was overexposed and washed
-  // out MToon's toon-shading character.
 
   const directionalLight =
     new THREE.DirectionalLight(
@@ -70,11 +64,9 @@ export function setupLighting(
   // RIM (backlight)
   // ======================
   //
-  // Cool blue-white directional from behind-left-above. On a
-  // transparent Electron overlay this is the single highest-impact
-  // lighting change: the edge highlight separates the avatar from
-  // whatever desktop content is behind her and makes her feel
-  // three-dimensional rather than pasted onto the screen.
+  // Cool blue-white directional from behind-left-above. Edge highlight
+  // separates the avatar from the transparent background and gives her
+  // depth without affecting the front-facing toon shading.
 
   const rimLight =
     new THREE.DirectionalLight(
@@ -101,7 +93,7 @@ export function setupLighting(
 
   return {
 
-    hemiLight,
+    ambientLight,
     directionalLight,
     rimLight,
 

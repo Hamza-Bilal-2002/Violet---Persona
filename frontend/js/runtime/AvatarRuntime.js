@@ -510,16 +510,16 @@ export class AvatarRuntime {
 
           if (!mat?.isMToonMaterial) continue;
 
-          mat.shadingToonyFactor      = 0.85;
+          mat.shadingToonyFactor   = 0.9;
 
-          mat.rimLightingMixFactor    = 0.3;
-          mat.rimColorFactor.setRGB(0.7, 0.8, 1.0);
+          mat.rimLightingMixFactor = 0.2;
+          mat.rimColorFactor?.setRGB(0.75, 0.85, 1.0);
 
-          mat.outlineWidthMode        = 'worldCoordinates';
-          mat.outlineWidthFactor      = 0.003;
-          mat.outlineColorFactor.setRGB(0.15, 0.1, 0.12);
+          mat.outlineWidthMode     = 'worldCoordinates';
+          mat.outlineWidthFactor   = 0.002;
+          mat.outlineColorFactor?.setRGB(0.12, 0.08, 0.1);
 
-          mat.needsUpdate             = true;
+          mat.needsUpdate          = true;
 
         }
 
