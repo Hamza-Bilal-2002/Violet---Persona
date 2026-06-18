@@ -272,12 +272,6 @@ async function _api(method, apiPath, body = null) {
 
   if (res === null) return null; // 204 No Content — success
 
-  if (res.status === 404) {
-    throw new Error(
-      'No active Spotify device found. Open Spotify and start playing something first, then try again.'
-    );
-  }
-
   if (res.status >= 400) {
     const reason =
       res.body?.error?.message ||
@@ -288,12 +282,70 @@ async function _api(method, apiPath, body = null) {
   return res.body;
 }
 
+// ─── Device management ────────────────────────────────────────────────────────
+//
+// The Spotify Web API requires an "active device" before playback can be
+// started. A device becomes active when the user has interacted with a
+// Spotify client recently. If no device is active we transfer playback to
+// the first available one, wait briefly for the transfer to register, then
+// return its ID so the caller can target it explicitly in the play request.
+
+async function _ensureActiveDevice() {
+
+  const data    = await _api('GET', '/me/player/devices');
+  const devices = data?.devices || [];
+
+  console.log(
+    '[spotify] available devices:',
+    devices.map((d) => `${d.name} (active=${d.is_active})`)
+  );
+
+  if (!devices.length) {
+    throw new Error(
+      'No Spotify devices found. Open the Spotify app on your PC or phone first.'
+    );
+  }
+
+  const active = devices.find((d) => d.is_active);
+
+  if (active) {
+    return active.id;
+  }
+
+  // No active device — transfer playback to the first available one.
+  // play:false leaves it paused so the subsequent play call starts fresh.
+
+  const target = devices[0];
+
+  console.log('[spotify] transferring playback to:', target.name);
+
+  await _api('PUT', '/me/player', {
+    device_ids: [target.id],
+    play:       false,
+  });
+
+  // Give Spotify a moment to register the transfer before we fire play.
+
+  await new Promise((r) => setTimeout(r, 800));
+
+  return target.id;
+
+}
+
 // ─── Public API actions ───────────────────────────────────────────────────────
 
 async function searchAndPlay(query, type = 'track') {
 
   const validTypes = ['track', 'artist', 'album', 'playlist'];
   const t = validTypes.includes(type) ? type : 'track';
+
+  // Resolve the device first so the play request targets it explicitly.
+  // This handles the common case where Spotify is open but idle (no
+  // active device) without asking the user to manually press play first.
+
+  const deviceId = await _ensureActiveDevice();
+
+  const playPath = `/me/player/play?device_id=${deviceId}`;
 
   const data = await _api(
     'GET',
@@ -303,7 +355,7 @@ async function searchAndPlay(query, type = 'track') {
   if (t === 'track') {
     const track = data?.tracks?.items?.[0];
     if (!track) throw new Error(`No track found for "${query}"`);
-    await _api('PUT', '/me/player/play', { uris: [track.uri] });
+    await _api('PUT', playPath, { uris: [track.uri] });
     return {
       playing: track.name,
       artist:  track.artists?.[0]?.name || 'unknown',
@@ -313,14 +365,14 @@ async function searchAndPlay(query, type = 'track') {
   if (t === 'artist') {
     const artist = data?.artists?.items?.[0];
     if (!artist) throw new Error(`No artist found: "${query}"`);
-    await _api('PUT', '/me/player/play', { context_uri: artist.uri });
+    await _api('PUT', playPath, { context_uri: artist.uri });
     return { playing: `music by ${artist.name}` };
   }
 
   if (t === 'album') {
     const album = data?.albums?.items?.[0];
     if (!album) throw new Error(`No album found: "${query}"`);
-    await _api('PUT', '/me/player/play', { context_uri: album.uri });
+    await _api('PUT', playPath, { context_uri: album.uri });
     return {
       playing: album.name,
       artist:  album.artists?.[0]?.name || 'unknown',
@@ -330,7 +382,7 @@ async function searchAndPlay(query, type = 'track') {
   if (t === 'playlist') {
     const playlist = data?.playlists?.items?.[0];
     if (!playlist) throw new Error(`No playlist found: "${query}"`);
-    await _api('PUT', '/me/player/play', { context_uri: playlist.uri });
+    await _api('PUT', playPath, { context_uri: playlist.uri });
     return { playing: `playlist: ${playlist.name}` };
   }
 
@@ -342,7 +394,8 @@ async function pause() {
 }
 
 async function resume() {
-  await _api('PUT', '/me/player/play');
+  const deviceId = await _ensureActiveDevice();
+  await _api('PUT', `/me/player/play?device_id=${deviceId}`);
   return { resumed: true };
 }
 
