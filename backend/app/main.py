@@ -2,15 +2,15 @@
 FastAPI entry point.
 
 One WebSocket route at /chat/ws drives the full dialogue loop. Each
-user message can fan out into a multi-step exchange with OpenAI if
+user message can fan out into a multi-step exchange with Gemini if
 the model decides to call a tool:
 
   1. receive user text frame
-  2. send to OpenAI, get back text OR function_call(s)
+  2. send to Gemini, get back text OR function_call(s)
   3. if function_calls: emit tool_call frames to the client, await
-     matching tool_result frames, send the results back to OpenAI,
+     matching tool_result frames, send the results back to Gemini,
      repeat from (2)
-  4. once OpenAI returns text, parse the inline emotion/animation
+  4. once Gemini returns text, parse the inline emotion/animation
      tags and send the structured reply frame to the client
   5. append the user turn + the final text reply to per-connection
      history (we don't preserve the intermediate tool exchanges —
@@ -19,7 +19,7 @@ the model decides to call a tool:
 Frame shapes:
 
   client -> server:
-    "plain text"                                    (legacy text)
+    "plain text"                                    (legacy text)6y
     {"text": "..."}                                 (preferred)
     {"type": "tool_result", "id": "...",
      "result": {...}}                               (success)
@@ -61,12 +61,12 @@ SEED_HISTORY_LIMIT = 60
 
 # Tools should resolve quickly — open_url is effectively instant,
 # system calls take a second at most. If a tool hangs past this,
-# we tell OpenAI it failed and continue. Bump if Wave 3.3 tools
+# we tell Gemini it failed and continue. Bump if Wave 3.3 tools
 # (Spotify, Calendar) need longer.
 
 TOOL_TIMEOUT_SECONDS = 30.0
 
-# Cap how many tool-call rounds OpenAI can request before we bail.
+# Cap how many tool-call rounds Gemini can request before we bail.
 # Protects against accidental loops where the model keeps calling
 # tools without ever emitting text. Real conversations should
 # resolve in 1-2 rounds.
@@ -146,7 +146,7 @@ async def chat_ws(websocket: WebSocket):
             logger.info(f"user: {user_text}")
 
             try:
-                final_text = await _run_dialogue_turn(
+                final_text, used_tools = await _run_dialogue_turn(
                     websocket, session, user_text
                 )
             except Exception as e:
@@ -160,7 +160,7 @@ async def chat_ws(websocket: WebSocket):
                 continue
 
             if not final_text:
-                # OpenAI produced only tool calls and no text. Shouldn't
+                # Gemini produced only tool calls and no text. Shouldn't
                 # happen with our system prompt but be defensive — emit
                 # a generic confirmation so the user gets some signal.
                 logger.warning("dialogue turn produced no final text; using fallback")
@@ -181,7 +181,7 @@ async def chat_ws(websocket: WebSocket):
 
             try:
                 message_store.append("user", user_text)
-                message_store.append("assistant", final_text)
+                message_store.append("assistant", final_text, is_tool_reply=used_tools)
             except Exception:
                 logger.exception("failed to persist turn — continuing")
 
@@ -209,21 +209,24 @@ async def _run_dialogue_turn(
     websocket: WebSocket,
     session,
     user_text: str,
-) -> str:
-    """Drive one user turn through OpenAI, handling any tool calls.
+) -> tuple[str, bool]:
+    """Drive one user turn through the LLM, handling any tool calls.
 
-    Returns the final text reply (with emotion/animation tags). The
-    caller writes it to the WS as a reply frame. History accumulation
-    is handled by the session itself.
+    Returns (final_text, used_tools). used_tools is True if at least
+    one tool call round happened — the caller uses this to mark the
+    persisted assistant turn so it is excluded from future session
+    seeding (preventing the model from learning to skip tool calls).
     """
 
     response = session.send_user_message(user_text)
+    used_tools = False
 
     for round_idx in range(MAX_TOOL_ROUNDS):
 
         if not response["function_calls"]:
-            return response["text"]
+            return response["text"], used_tools
 
+        used_tools = True
         logger.info(
             f"tool round {round_idx + 1}: "
             f"{[fc['name'] for fc in response['function_calls']]}"
@@ -249,13 +252,13 @@ async def _run_dialogue_turn(
     logger.warning(
         f"hit MAX_TOOL_ROUNDS ({MAX_TOOL_ROUNDS}); returning whatever text we have"
     )
-    return response["text"]
+    return response["text"], used_tools
 
 
 async def _await_tool_result(websocket: WebSocket, tool_id: str) -> dict:
     """Wait for the renderer to return a tool_result frame matching
     tool_id. Drops non-matching frames with a warning so an
-    interleaved user message can't poison the OpenAI loop."""
+    interleaved user message can't poison the Gemini loop."""
 
     try:
         while True:

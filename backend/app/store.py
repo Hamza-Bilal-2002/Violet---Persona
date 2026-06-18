@@ -63,12 +63,20 @@ class MessageStore:
     def _init_schema(self) -> None:
         self._conn.execute("""
             CREATE TABLE IF NOT EXISTS messages (
-                id      INTEGER PRIMARY KEY AUTOINCREMENT,
-                role    TEXT    NOT NULL,
-                content TEXT    NOT NULL,
-                ts      INTEGER NOT NULL
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                role          TEXT    NOT NULL,
+                content       TEXT    NOT NULL,
+                ts            INTEGER NOT NULL,
+                is_tool_reply INTEGER NOT NULL DEFAULT 0
             )
         """)
+        # Migration for DBs created before is_tool_reply was added.
+        try:
+            self._conn.execute(
+                "ALTER TABLE messages ADD COLUMN is_tool_reply INTEGER NOT NULL DEFAULT 0"
+            )
+        except Exception:
+            pass  # column already exists
         # Most queries are "most recent N", served by the rowid
         # PK already. Index on ts is cheap insurance against future
         # time-range queries.
@@ -77,28 +85,35 @@ class MessageStore:
         )
 
     def load_recent(self, limit: int = 60) -> list[dict]:
-        """Return the last `limit` messages in chronological order
-        (oldest first) — the shape ChatSession expects to splice
-        in between the system prompt and live turns."""
+        """Return the last `limit` non-tool-reply messages in chronological
+        order (oldest first). Tool-reply turns are excluded — they look like
+        the assistant acted without calling a tool, which teaches the model
+        to skip tool calls on future sessions."""
         cur = self._conn.execute(
-            "SELECT role, content FROM messages ORDER BY id DESC LIMIT ?",
+            """SELECT role, content FROM messages
+               WHERE is_tool_reply = 0
+               ORDER BY id DESC LIMIT ?""",
             (limit,),
         )
         rows = cur.fetchall()
-        # Reverse to get chronological order (load_recent fetches
-        # newest-first to honor the LIMIT cheaply).
+        # Reverse to get chronological order (fetched newest-first to
+        # honor the LIMIT cheaply).
         return [
             {"role": r["role"], "content": r["content"]}
             for r in reversed(rows)
         ]
 
-    def append(self, role: str, content: str) -> None:
-        """Append one message to the store."""
+    def append(self, role: str, content: str, is_tool_reply: bool = False) -> None:
+        """Append one message to the store.
+
+        is_tool_reply=True marks assistant turns generated after a tool call
+        cycle. These are excluded from load_recent() seeding to prevent the
+        model from learning to skip tool calls."""
         if not content:
             return
         self._conn.execute(
-            "INSERT INTO messages (role, content, ts) VALUES (?, ?, ?)",
-            (role, content, int(time.time() * 1000)),
+            "INSERT INTO messages (role, content, ts, is_tool_reply) VALUES (?, ?, ?, ?)",
+            (role, content, int(time.time() * 1000), 1 if is_tool_reply else 0),
         )
 
     def clear(self) -> None:
