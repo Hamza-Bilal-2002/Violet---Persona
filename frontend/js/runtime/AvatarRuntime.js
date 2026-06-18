@@ -657,9 +657,88 @@ export class AvatarRuntime {
 
     }
 
+    // Dev-mode text input — browser only, never shown inside Electron.
+    // Lets you type to Violet without a microphone (e.g. in an office).
+    // Violet still speaks back via Piper TTS exactly as she would for voice.
+
+    if (!this._isElectron) {
+
+      this._mountDevTextInput();
+
+    }
+
     console.log(
       'VRM Runtime Ready'
     );
+
+  }
+
+  _mountDevTextInput() {
+
+    const wrapper = document.createElement('div');
+
+    Object.assign(wrapper.style, {
+      position:   'fixed',
+      bottom:     '24px',
+      left:       '50%',
+      transform:  'translateX(-50%)',
+      display:    'flex',
+      gap:        '8px',
+      zIndex:     '999999',
+      fontFamily: 'sans-serif',
+    });
+
+    const input = document.createElement('input');
+    input.type        = 'text';
+    input.placeholder = 'Type a message…';
+
+    Object.assign(input.style, {
+      width:        '340px',
+      padding:      '8px 12px',
+      borderRadius: '8px',
+      border:       '1px solid rgba(255,255,255,0.3)',
+      background:   'rgba(0,0,0,0.55)',
+      color:        '#fff',
+      fontSize:     '14px',
+      outline:      'none',
+    });
+
+    const btn = document.createElement('button');
+    btn.textContent = 'Send';
+
+    Object.assign(btn.style, {
+      padding:      '8px 16px',
+      borderRadius: '8px',
+      border:       'none',
+      background:   'rgba(120,80,200,0.85)',
+      color:        '#fff',
+      fontSize:     '14px',
+      cursor:       'pointer',
+    });
+
+    const send = () => {
+
+      const text = input.value.trim();
+
+      if (!text) return;
+
+      this.backendClient.send(text);
+
+      input.value = '';
+
+    };
+
+    btn.addEventListener('click', send);
+
+    input.addEventListener('keydown', (e) => {
+
+      if (e.key === 'Enter') send();
+
+    });
+
+    wrapper.appendChild(input);
+    wrapper.appendChild(btn);
+    document.body.appendChild(wrapper);
 
   }
 
