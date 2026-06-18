@@ -1,15 +1,16 @@
 // Shared Windows Core Audio COM interop helper.
 //
-// Passes PowerShell scripts via -EncodedCommand (UTF-16LE base64) to
-// avoid all quoting problems with inline C#. The Add-Type block
-// defines a minimal vtable-compatible interface set so we can call
-// the four methods we actually need:
-//   AudioHelper.SetVolume(percent)   — master output 0-100
-//   AudioHelper.GetVolume()          — returns current output level
-//   AudioHelper.SetMicMute(bool)     — mutes/unmutes capture endpoint
-//   AudioHelper.GetMicMute()         — returns capture mute state
+// First call compiles the C# to a DLL in %TEMP% (2-4s, once ever).
+// Every subsequent call — including across app restarts — skips
+// compilation and just loads the pre-compiled DLL (~100ms).
 //
-// Vtable slot counts (IUnknown methods are implicit in C# COM interop):
+// AudioHelper static methods exposed:
+//   SetVolume(percent)   — master output 0-100
+//   GetVolume()          — returns current output level
+//   SetMicMute(bool)     — mutes/unmutes capture endpoint
+//   GetMicMute()         — returns capture mute state
+//
+// Vtable slot stubs (IUnknown methods are implicit in C# COM interop):
 //   IAudioEndpointVolume:
 //     f g h i           → 4 stubs → SetMasterVolumeLevelScalar (slot 4)
 //     j                 → 1 stub  → GetMasterVolumeLevelScalar (slot 6)
@@ -23,11 +24,17 @@
 
 const { exec } = require('child_process');
 const { promisify } = require('util');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 const execAsync = promisify(exec);
 
-const AUDIO_TYPE = `
-Add-Type -TypeDefinition @"
+// Version suffix: increment whenever the C# source below changes.
+const DLL_PATH = path.join(os.tmpdir(), 'persona_audio_v1.dll');
+
+// Raw C# source — no PowerShell wrapper (added dynamically in _ensureDll).
+const AUDIO_CS = `\
 using System;
 using System.Runtime.InteropServices;
 [Guid("5CDF2C82-841E-4546-9722-0CF74078229A"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -70,22 +77,54 @@ public static class AudioHelper {
     public static bool GetMicMute() {
         bool m; Endpoint(1).GetMute(out m); return m;
     }
-}
-"@ -Language CSharp
-`;
+}`;
 
 // Encode a multi-line PS script as UTF-16LE base64 for -EncodedCommand.
-// This sidesteps every quoting and escaping issue when the script
-// contains C# here-strings, double quotes, backslashes, etc.
-
+// Sidesteps every quoting/escaping issue with inline C# and here-strings.
 function encodePs(script) {
   return Buffer.from(script, 'utf16le').toString('base64');
 }
 
-function runPs(script) {
-  const encoded = encodePs(AUDIO_TYPE + '\n' + script);
+// In-process sentinel — avoids repeated fs.existsSync calls after first
+// successful compilation (Electron's main process is long-lived).
+let _dllReady = false;
+let _dllPromise = null;
+
+function _ensureDll() {
+  if (_dllReady) return Promise.resolve();
+  if (_dllPromise) return _dllPromise;
+
+  _dllPromise = (async () => {
+    if (!fs.existsSync(DLL_PATH)) {
+      // Compile once, write to disk. Forward slashes work on Windows
+      // and avoid backslash escaping inside the PS single-quoted string.
+      const dllFwd = DLL_PATH.replace(/\\/g, '/');
+      const compileScript =
+        `Add-Type -TypeDefinition @"\n${AUDIO_CS}\n"@ ` +
+        `-OutputAssembly '${dllFwd}' -Language CSharp`;
+      await execAsync(
+        `powershell -NoProfile -NonInteractive -EncodedCommand ${encodePs(compileScript)}`,
+        { windowsHide: true, timeout: 15000 }
+      );
+    }
+    _dllReady = true;
+  })();
+
+  // Allow retry on failure (clear the cached promise so the next call
+  // re-enters _ensureDll and tries again).
+  _dllPromise.catch(() => { _dllPromise = null; });
+
+  return _dllPromise;
+}
+
+async function runPs(script) {
+  await _ensureDll();
+
+  // Load pre-compiled DLL (fast, ~100ms) then run the caller's script.
+  const dllFwd = DLL_PATH.replace(/\\/g, '/');
+  const full = `Add-Type -Path '${dllFwd}'\n${script}`;
   return execAsync(
-    `powershell -NoProfile -NonInteractive -EncodedCommand ${encoded}`,
+    `powershell -NoProfile -NonInteractive -EncodedCommand ${encodePs(full)}`,
     { windowsHide: true, timeout: 10000 }
   );
 }
