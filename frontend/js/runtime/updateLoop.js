@@ -12,6 +12,7 @@ export function startUpdateLoop({
   animationManager,
   vrm,
   lipSyncManager,
+  dialogueManager,
   lookAtManager,
   getAvatarViewport,
   onFrame,
@@ -124,6 +125,22 @@ export function startUpdateLoop({
     if (lipSyncManager) {
 
       lipSyncManager.update(
+        delta
+      );
+
+    }
+
+    // ======================
+    // EXPRESSION VARIATION
+    // ======================
+
+    // Runs after lip-sync so the amplitude read by
+    // dialogueManager.update() reflects this frame's
+    // freshly-smoothed value, not last frame's.
+
+    if (dialogueManager) {
+
+      dialogueManager.update(
         delta
       );
 

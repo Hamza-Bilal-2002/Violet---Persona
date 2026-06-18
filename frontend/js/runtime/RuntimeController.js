@@ -185,6 +185,10 @@ export class RuntimeController {
         this.avatarRuntime
           .lipSyncManager,
 
+      dialogueManager:
+        this.avatarRuntime
+          .dialogueManager,
+
       lookAtManager:
         this.avatarRuntime
           .lookAtManager,

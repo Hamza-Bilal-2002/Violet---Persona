@@ -80,6 +80,46 @@ export class DialogueManager {
     this.defaultEmotion =
       'relaxed';
 
+    // ======================
+    // EXPRESSION VARIATION
+    // ======================
+    //
+    // Option 1 — sine drift: a slow oscillation applied to the
+    // base emotion intensity while speaking. Prevents the face from
+    // locking into a single static value for the whole sentence.
+    //
+    // Option 2 — lip coupling: a fraction of the lip-sync amplitude
+    // is added on top, so the expression briefly peaks on loud or
+    // emphatic speech moments.
+    //
+    // Both are additive on the base intensity the backend sent.
+    // The combined result is clamped to [0, 1].
+
+    this._emotionTime =
+      0;
+
+    this._baseEmotionName =
+      null;
+
+    this._baseEmotionIntensity =
+      0;
+
+    // Sine wave: 0.35 Hz ≈ one gentle cycle every ~2.9 s.
+    // Depth of ±0.13 keeps the swing subtle — visible but
+    // not distracting.
+
+    this._sineFreq =
+      0.35;
+
+    this._sineDepth =
+      0.13;
+
+    // Lip coupling: when aa peaks at 1.0, emotion intensity
+    // gets a +0.12 bump. Scales linearly with lip amplitude.
+
+    this._lipCoupling =
+      0.12;
+
   }
 
   // ======================
@@ -269,6 +309,19 @@ export class DialogueManager {
 
     this.isSpeaking =
       true;
+
+    // Reset variation clock so each new message starts the
+    // sine wave from the same phase — avoids a jarring
+    // mid-cycle jump when the emotion name or intensity changes.
+
+    this._emotionTime =
+      0;
+
+    this._baseEmotionName =
+      message.emotion?.name || null;
+
+    this._baseEmotionIntensity =
+      message.emotion?.intensity ?? 1;
 
     this.playAnimation(
       message.animation
@@ -537,6 +590,15 @@ export class DialogueManager {
     this.currentAudio =
       null;
 
+    this._baseEmotionName =
+      null;
+
+    this._baseEmotionIntensity =
+      0;
+
+    this._emotionTime =
+      0;
+
     // RESET EMOTIONS
 
     this.expressionManager
@@ -583,6 +645,15 @@ export class DialogueManager {
 
     this.lipSyncManager
       ?.detach();
+
+    this._baseEmotionName =
+      null;
+
+    this._baseEmotionIntensity =
+      0;
+
+    this._emotionTime =
+      0;
 
     // Stop Piper audio if it was the current path.
 
@@ -638,6 +709,74 @@ export class DialogueManager {
 
     this.playAnimation(
       this.defaultAnimation
+    );
+
+  }
+
+  // ======================
+  // UPDATE (per-frame)
+  // ======================
+  //
+  // Called every frame by the update loop while the avatar is alive.
+  // Only does real work during speech — idles out immediately otherwise.
+  //
+  // Combines two effects:
+  //   Option 1 — sine drift: slow oscillation on the base intensity
+  //   Option 2 — lip coupling: peaks emotion slightly on loud speech
+
+  update(delta) {
+
+    if (
+      !this.isSpeaking ||
+      !this._baseEmotionName ||
+      !this.expressionManager
+    ) {
+
+      return;
+
+    }
+
+    this._emotionTime +=
+      delta;
+
+    // Option 1: sine wave drifts the intensity gently up and down.
+
+    const sine =
+      Math.sin(
+        this._emotionTime *
+        this._sineFreq *
+        Math.PI * 2
+      );
+
+    const sineContrib =
+      sine * this._sineDepth;
+
+    // Option 2: add a fraction of the current lip-sync amplitude.
+    // getAmplitude() returns 0 when not attached, so this is safe
+    // to call regardless of which TTS path is active.
+
+    const lipAmp =
+      this.lipSyncManager
+        ? this.lipSyncManager.getAmplitude()
+        : 0;
+
+    const lipContrib =
+      lipAmp * this._lipCoupling;
+
+    const intensity =
+      Math.max(
+        0,
+        Math.min(
+          1,
+          this._baseEmotionIntensity +
+          sineContrib +
+          lipContrib
+        )
+      );
+
+    this.expressionManager.set(
+      this._baseEmotionName,
+      intensity
     );
 
   }
