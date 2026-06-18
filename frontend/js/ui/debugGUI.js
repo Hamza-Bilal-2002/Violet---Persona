@@ -4,7 +4,8 @@ export function setupGUI(
 
   expressionManager,
   animationManager,
-  vrm
+  vrm,
+  boundingSphereHelper
 
 ) {
 
@@ -47,6 +48,21 @@ export function setupGUI(
 
     gui,
     vrm
+
+  );
+
+  // =========================
+  // HIT ZONE
+  // =========================
+  //
+  // Visualise the bounding sphere used for click-through hit-testing.
+  // Toggle it on to see how tight the interactive zone is around
+  // the avatar body.
+
+  setupHitZoneGUI(
+
+    gui,
+    boundingSphereHelper
 
   );
 
@@ -209,6 +225,36 @@ function setupMeshGUI(gui, vrm) {
 
   // Collapsed by default — could be a long list, and most users
   // won't poke at this.
+
+  folder.close();
+
+}
+
+// =========================
+// HIT ZONE GUI
+// =========================
+
+function setupHitZoneGUI(gui, boundingSphereHelper) {
+
+  const folder =
+    gui.addFolder('Hit Zone');
+
+  const state = {
+    showSphere: false,
+  };
+
+  folder
+    .add(state, 'showSphere')
+    .name('Show Bounding Sphere')
+    .onChange((v) => {
+
+      if (boundingSphereHelper) {
+
+        boundingSphereHelper.visible = v;
+
+      }
+
+    });
 
   folder.close();
 

@@ -393,6 +393,49 @@ export class AvatarRuntime {
       this._avatarBoundingSphere
     );
 
+    // The auto-fitted sphere is conservative — it encloses the full
+    // silhouette including hair volume and outstretched hands. Scale
+    // it down to roughly the torso+head so click-through resumes as
+    // soon as the cursor leaves the body, not the extended bounding
+    // box of the whole pose.
+
+    this._avatarBoundingSphere.radius *=
+      0.6;
+
+    // Wireframe sphere helper — added to the scene invisible.
+    // The debug GUI "Hit Zone" toggle makes it visible so the
+    // user can see exactly how tight the hit-test zone is and
+    // tune _hitSphereScale if needed.
+
+    const helperGeo =
+      new THREE.SphereGeometry(
+        this._avatarBoundingSphere.radius,
+        24,
+        16
+      );
+
+    const helperMat =
+      new THREE.MeshBasicMaterial({
+        color:       0x00ff88,
+        wireframe:   true,
+        transparent: true,
+        opacity:     0.45,
+      });
+
+    this._boundingSphereHelper =
+      new THREE.Mesh(helperGeo, helperMat);
+
+    this._boundingSphereHelper.position.copy(
+      this._avatarBoundingSphere.center
+    );
+
+    this._boundingSphereHelper.visible =
+      false;
+
+    this.scene.add(
+      this._boundingSphereHelper
+    );
+
     // ======================
     // MATERIAL CACHE (Phase 4 Wave 4.1)
     // ======================

@@ -120,7 +120,10 @@ export class RuntimeController {
           .animationManager,
 
         this.avatarRuntime
-          .currentVRM
+          .currentVRM,
+
+        this.avatarRuntime
+          ._boundingSphereHelper
 
       );
 
