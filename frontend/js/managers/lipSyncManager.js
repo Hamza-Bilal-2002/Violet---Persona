@@ -127,11 +127,19 @@ export class LipSyncManager {
       this.audioContext
         .createAnalyser();
 
+    // Higher FFT size gives finer frequency resolution so the
+    // spectral centroid calculation below can distinguish vowel
+    // formants from sibilants more accurately.
+
     this.analyser.fftSize =
-      256;
+      1024;
+
+    // Keep the analyser's own smoothing light — the per-frame lerp
+    // in update() is the primary smoothing control. Running both
+    // at 0.6 compounds into a sluggish, always-partially-open mouth.
 
     this.analyser.smoothingTimeConstant =
-      0.6;
+      0.35;
 
     // GRAPH: source -> analyser -> destination
     // (destination kept so audio still plays)
@@ -248,69 +256,117 @@ export class LipSyncManager {
       const bins =
         this.frequencyData.length;
 
-      // BAND BOUNDS
+      // Speech band: skip DC + sub-bass rumble (bottom 1%),
+      // top out at 60% of bins (well above speech ceiling
+      // regardless of sample rate — avoids pure noise bins).
 
-      const lowEnd =
-        Math.max(
-          1,
-          Math.floor(bins / 8)
-        );
+      const speechStart =
+        Math.max(2, Math.floor(bins * 0.01));
 
-      const midEnd =
-        Math.max(
-          lowEnd + 1,
-          Math.floor(bins / 3)
-        );
+      const speechEnd =
+        Math.floor(bins * 0.6);
 
-      const highEnd =
-        Math.max(
-          midEnd + 1,
-          Math.floor((bins * 2) / 3)
-        );
+      // Compute speech-band amplitude AND spectral centroid in
+      // one pass. The centroid (weighted average bin position,
+      // normalised 0→1 within the speech band) tells us WHERE
+      // in the spectrum the energy is concentrated:
+      //   near 0 → low-frequency → open vowels (aa)
+      //   near 0.5 → mid-frequency → rounded vowels (oh)
+      //   near 1 → high-frequency → sibilants / consonants (ee)
 
-      // MEAN HELPERS
+      let energySum = 0;
+      let weightedSum = 0;
+      const bandWidth = speechEnd - speechStart;
 
-      const mean =
-        (start, end) => {
+      for (
+        let i = speechStart;
+        i < speechEnd;
+        i++
+      ) {
 
-          let sum = 0;
+        const v =
+          this.frequencyData[i] / 255;
 
-          for (
-            let i = start;
-            i < end;
-            i++
-          ) {
+        energySum += v;
+        weightedSum += v * (i - speechStart);
 
-            sum +=
-              this.frequencyData[i];
+      }
 
-          }
+      const amplitude =
+        energySum / bandWidth; // 0–1
 
-          return (
-            sum /
-            (end - start) /
-            255
-          );
+      // Silence gate — below this the mouth stays closed.
+      // Prevents the subtle "always mumbling" artifact when
+      // the audio has low-level noise or breath content.
 
-        };
+      const SILENCE_GATE = 0.04;
 
-      const low =
-        mean(0, lowEnd);
+      const volume =
+        amplitude < SILENCE_GATE
+          ? 0
+          : Math.min(
+              1,
+              (amplitude - SILENCE_GATE) /
+              (1 - SILENCE_GATE)
+            );
 
-      const mid =
-        mean(lowEnd, midEnd);
+      const scale =
+        volume * this.strength;
 
-      const high =
-        mean(midEnd, highEnd);
+      if (scale < 0.001) {
 
-      aaTarget =
-        low * this.strength;
+        // Hard zero — skip centroid math entirely.
+        aaTarget = 0;
+        ohTarget = 0;
+        eeTarget = 0;
 
-      ohTarget =
-        mid * this.strength;
+      } else {
 
-      eeTarget =
-        high * this.strength;
+        // Spectral centroid: 0 = all energy at speechStart,
+        // 1 = all energy at speechEnd. Defaults to 0.5 on silence.
+
+        const centroid =
+          energySum > 0.001
+            ? weightedSum / (energySum * bandWidth)
+            : 0.5;
+
+        // Map centroid to per-viseme weights using soft ramps
+        // that overlap so transitions between shapes are smooth:
+        //   aa peaks at centroid 0   (low-freq / open vowels)
+        //   oh peaks at centroid 0.5 (mid-freq / rounded vowels)
+        //   ee peaks at centroid 1   (high-freq / consonants)
+
+        const aaW =
+          Math.max(0, 1 - centroid / 0.5);
+
+        const eeW =
+          Math.max(0, (centroid - 0.5) / 0.5);
+
+        const ohW =
+          Math.max(0, 1 - Math.abs(centroid - 0.5) * 3.5);
+
+        // Normalise weights so they sum to 1, then scale by volume.
+        // This keeps total mouth motion proportional to amplitude —
+        // no over-driving when multiple bands are active.
+
+        const wTotal =
+          aaW + ohW + eeW;
+
+        if (wTotal > 0.001) {
+
+          aaTarget = (aaW / wTotal) * scale;
+          ohTarget = (ohW / wTotal) * scale;
+          eeTarget = (eeW / wTotal) * scale;
+
+        } else {
+
+          aaTarget = scale;
+          ohTarget = 0;
+          eeTarget = 0;
+
+        }
+
+      }
 
     }
 
@@ -392,6 +448,22 @@ export class LipSyncManager {
       'ou',
       0
     );
+
+  }
+
+  // ======================
+  // AMPLITUDE QUERY
+  // ======================
+  //
+  // Returns the current smoothed mouth-open amount (0-1).
+  // aa is the primary "mouth open" viseme so its smoothed
+  // value is a reliable envelope of speech amplitude.
+  // DialogueManager reads this each frame to couple emotion
+  // intensity to speech loudness (Option 2 variation).
+
+  getAmplitude() {
+
+    return this._smoothed.aa;
 
   }
 

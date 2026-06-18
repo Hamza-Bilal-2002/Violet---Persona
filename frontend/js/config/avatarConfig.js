@@ -161,8 +161,12 @@ export const AVATAR_CONFIG = {
     strength:
       1.0,
 
+    // Reduced from 0.6 — the analyser's own smoothingTimeConstant
+    // (0.35) now carries less of the lag budget, so the per-frame
+    // lerp can be tighter without feeling jittery.
+
     smoothing:
-      0.6,
+      0.45,
 
   },
 
