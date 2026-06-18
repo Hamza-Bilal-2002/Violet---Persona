@@ -104,6 +104,13 @@ export class DialogueManager {
     this._baseEmotionIntensity =
       0;
 
+    // True only once audio has actually started playing.
+    // Guards playAnimation/playEmotion and the per-frame variation
+    // update so neither fires during the Piper synthesis wait.
+
+    this._ttsStarted =
+      false;
+
     // Sine wave: 0.35 Hz ≈ one gentle cycle every ~2.9 s.
     // Depth of ±0.13 keeps the swing subtle — visible but
     // not distracting.
@@ -314,6 +321,9 @@ export class DialogueManager {
     // sine wave from the same phase — avoids a jarring
     // mid-cycle jump when the emotion name or intensity changes.
 
+    this._ttsStarted =
+      false;
+
     this._emotionTime =
       0;
 
@@ -322,14 +332,6 @@ export class DialogueManager {
 
     this._baseEmotionIntensity =
       message.emotion?.intensity ?? 1;
-
-    this.playAnimation(
-      message.animation
-    );
-
-    this.playEmotion(
-      message.emotion
-    );
 
     if (this.ttsClient) {
 
@@ -412,6 +414,15 @@ export class DialogueManager {
 
       await audio.play();
 
+      // audio.play() resolves the moment playback begins —
+      // start animation and emotion in sync with the first sample.
+
+      this._ttsStarted = true;
+
+      this.playAnimation(message.animation);
+
+      this.playEmotion(message.emotion);
+
       console.log(
         'TTS STARTED (piper)'
       );
@@ -448,12 +459,18 @@ export class DialogueManager {
     utterance.onstart =
       () => {
 
-        console.log(
-          'TTS STARTED (browser)'
-        );
+        this._ttsStarted = true;
+
+        this.playAnimation(message.animation);
+
+        this.playEmotion(message.emotion);
 
         this.lipSyncManager
           ?.attachUtterance(utterance);
+
+        console.log(
+          'TTS STARTED (browser)'
+        );
 
       };
 
@@ -590,6 +607,9 @@ export class DialogueManager {
     this.currentAudio =
       null;
 
+    this._ttsStarted =
+      false;
+
     this._baseEmotionName =
       null;
 
@@ -645,6 +665,9 @@ export class DialogueManager {
 
     this.lipSyncManager
       ?.detach();
+
+    this._ttsStarted =
+      false;
 
     this._baseEmotionName =
       null;
@@ -728,6 +751,7 @@ export class DialogueManager {
 
     if (
       !this.isSpeaking ||
+      !this._ttsStarted ||
       !this._baseEmotionName ||
       !this.expressionManager
     ) {
