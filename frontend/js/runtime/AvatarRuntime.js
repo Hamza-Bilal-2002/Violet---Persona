@@ -515,8 +515,8 @@ export class AvatarRuntime {
           // intended look and causes visible shading artifacts on hair.
 
           mat.outlineWidthMode   = 'worldCoordinates';
-          mat.outlineWidthFactor = 0.002;
-          mat.outlineColorFactor?.setRGB(0.55, 0.5, 0.52);
+          mat.outlineWidthFactor = 0.0012;
+          mat.outlineColorFactor?.setRGB(0.07, 0.05, 0.06);
 
           mat.needsUpdate        = true;
 

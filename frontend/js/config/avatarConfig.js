@@ -95,12 +95,9 @@ export const AVATAR_CONFIG = {
         0xfff8f0,  // very slightly warm white
 
       intensity:
-        1.2,
+        0.9,
 
     },
-
-    // Primary key light, front-right-above. Kept at 1.0 so the toon
-    // shading shadow boundary is clearly visible without blowout.
 
     directional: {
 
@@ -108,7 +105,7 @@ export const AVATAR_CONFIG = {
         0xffffff,
 
       intensity:
-        1.2,
+        1.1,
 
       position: {
 
