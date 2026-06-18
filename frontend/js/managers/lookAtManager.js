@@ -111,10 +111,10 @@ export class LookAtManager {
     // affected; only the eye lookAt target.
 
     this.faceProximityRadius =
-      options.faceProximityRadius ?? 90;
+      options.faceProximityRadius ?? 70;
 
     this.faceProximityFade =
-      options.faceProximityFade ?? 80;
+      options.faceProximityFade ?? 60;
 
     // ======================
     // STATE
