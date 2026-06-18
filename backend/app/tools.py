@@ -159,6 +159,49 @@ SYSTEM_VOLUME = {
 }
 
 
+BRIGHTNESS = {
+    "type": "function",
+    "function": {
+        "name": "brightness",
+        "description": (
+            "Control the screen brightness on the user's laptop display. "
+            "Use this for any request about brightness:\n"
+            "  'make the screen brighter' → action='up'\n"
+            "  'dim the screen' / 'lower brightness' → action='down'\n"
+            "  'set brightness to 40%' → action='set', level=40\n"
+            "  'what's the brightness?' → action='get'\n\n"
+            "Note: only controls the built-in laptop screen. External "
+            "monitors connected via HDMI/DisplayPort are not affected."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "description": "One of: 'get', 'set', 'up', 'down'.",
+                    "enum": ["get", "set", "up", "down"],
+                },
+                "level": {
+                    "type": "integer",
+                    "description": (
+                        "Target brightness 0–100. Required when "
+                        "action is 'set', ignored otherwise."
+                    ),
+                },
+                "step": {
+                    "type": "integer",
+                    "description": (
+                        "Percentage points to add/subtract for 'up'/'down'. "
+                        "Defaults to 10 if omitted. Clamped to 1–50."
+                    ),
+                },
+            },
+            "required": ["action"],
+        },
+    },
+}
+
+
 LOCK_PC = {
     "type": "function",
     "function": {
@@ -353,6 +396,7 @@ TOOL_DECLARATIONS = [
     OPEN_URL,
     OPEN_APP,
     SYSTEM_VOLUME,
+    BRIGHTNESS,
     LOCK_PC,
     SLEEP_PC,
     SPOTIFY_PLAY,
