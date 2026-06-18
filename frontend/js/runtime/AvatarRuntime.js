@@ -1138,6 +1138,22 @@ export class AvatarRuntime {
     // Selectors here should match every interactive overlay we
     // want to be clickable on top of the transparent window.
 
+    // If the debug GUI is open, always capture events regardless of
+    // cursor position — in pass-through mode the window never gets
+    // mousemove events so elementFromPoint would use stale coords.
+
+    const guiEl =
+      document.querySelector('.lil-gui');
+
+    if (
+      guiEl &&
+      guiEl.style.display !== 'none'
+    ) {
+
+      return true;
+
+    }
+
     const elAtPoint =
       document.elementFromPoint(
         cursorX,

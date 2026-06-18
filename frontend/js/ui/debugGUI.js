@@ -333,30 +333,32 @@ function setupLightingGUI(gui, lights) {
   key.close();
 
   // ---- Rim ----
-  const rim = folder.addFolder('Rim Light');
-  const rimState = {
-    color:     '#' + lights.rimLight.color.getHexString(),
-    intensity: lights.rimLight.intensity,
-    x:         lights.rimLight.position.x,
-    y:         lights.rimLight.position.y,
-    z:         lights.rimLight.position.z,
-  };
-  rim.addColor(rimState, 'color')
-    .name('Color')
-    .onChange((v) => lights.rimLight.color.set(v));
-  rim.add(rimState, 'intensity', 0, 3, 0.05)
-    .name('Intensity')
-    .onChange((v) => { lights.rimLight.intensity = v; });
-  rim.add(rimState, 'x', -10, 10, 0.1)
-    .name('Pos X')
-    .onChange((v) => { lights.rimLight.position.x = v; });
-  rim.add(rimState, 'y', -10, 10, 0.1)
-    .name('Pos Y')
-    .onChange((v) => { lights.rimLight.position.y = v; });
-  rim.add(rimState, 'z', -10, 10, 0.1)
-    .name('Pos Z')
-    .onChange((v) => { lights.rimLight.position.z = v; });
-  rim.close();
+  if (lights.rimLight) {
+    const rim = folder.addFolder('Rim Light');
+    const rimState = {
+      color:     '#' + lights.rimLight.color.getHexString(),
+      intensity: lights.rimLight.intensity,
+      x:         lights.rimLight.position.x,
+      y:         lights.rimLight.position.y,
+      z:         lights.rimLight.position.z,
+    };
+    rim.addColor(rimState, 'color')
+      .name('Color')
+      .onChange((v) => lights.rimLight.color.set(v));
+    rim.add(rimState, 'intensity', 0, 3, 0.05)
+      .name('Intensity')
+      .onChange((v) => { lights.rimLight.intensity = v; });
+    rim.add(rimState, 'x', -10, 10, 0.1)
+      .name('Pos X')
+      .onChange((v) => { lights.rimLight.position.x = v; });
+    rim.add(rimState, 'y', -10, 10, 0.1)
+      .name('Pos Y')
+      .onChange((v) => { lights.rimLight.position.y = v; });
+    rim.add(rimState, 'z', -10, 10, 0.1)
+      .name('Pos Z')
+      .onChange((v) => { lights.rimLight.position.z = v; });
+    rim.close();
+  }
 
   folder.close();
 
