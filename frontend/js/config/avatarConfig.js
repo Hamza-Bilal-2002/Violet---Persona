@@ -99,10 +99,6 @@ export const AVATAR_CONFIG = {
 
     },
 
-    // Shifted from (1,2,3) to (2,2,1) — more to the right and less
-    // front-on so the light grazes the face from the side rather than
-    // hitting it straight-on. Same intensity keeps the hair shadow filled.
-
     directional: {
 
       color:
@@ -113,9 +109,9 @@ export const AVATAR_CONFIG = {
 
       position: {
 
-        x: 2,
+        x: 1,
         y: 2,
-        z: 1,
+        z: 3,
 
       },
 

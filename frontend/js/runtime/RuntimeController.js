@@ -50,9 +50,10 @@ export class RuntimeController {
 
       );
 
-    setupLighting(
-      this.scene
-    );
+    this.lights =
+      setupLighting(
+        this.scene
+      );
 
     // ======================
     // VIEWPORT (Phase 2.A)
@@ -123,7 +124,13 @@ export class RuntimeController {
           .currentVRM,
 
         this.avatarRuntime
-          ._boundingSphereHelper
+          ._boundingSphereHelper,
+
+        this.lights,
+
+        this.camera,
+
+        this.controls,
 
       );
 

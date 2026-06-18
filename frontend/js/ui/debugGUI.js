@@ -5,7 +5,10 @@ export function setupGUI(
   expressionManager,
   animationManager,
   vrm,
-  boundingSphereHelper
+  boundingSphereHelper,
+  lights,
+  camera,
+  controls,
 
 ) {
 
@@ -64,6 +67,25 @@ export function setupGUI(
     gui,
     boundingSphereHelper
 
+  );
+
+  // =========================
+  // LIGHTING
+  // =========================
+
+  setupLightingGUI(
+    gui,
+    lights
+  );
+
+  // =========================
+  // CAMERA
+  // =========================
+
+  setupCameraGUI(
+    gui,
+    camera,
+    controls
   );
 
   // Default to hidden — the polished desktop overlay should
@@ -255,6 +277,141 @@ function setupHitZoneGUI(gui, boundingSphereHelper) {
       }
 
     });
+
+  folder.close();
+
+}
+
+// =========================
+// LIGHTING GUI
+// =========================
+
+function setupLightingGUI(gui, lights) {
+
+  if (!lights) return;
+
+  const folder = gui.addFolder('Lighting');
+
+  // ---- Ambient ----
+  const amb = folder.addFolder('Ambient');
+  const ambState = {
+    color:     '#' + lights.ambientLight.color.getHexString(),
+    intensity: lights.ambientLight.intensity,
+  };
+  amb.addColor(ambState, 'color')
+    .name('Color')
+    .onChange((v) => lights.ambientLight.color.set(v));
+  amb.add(ambState, 'intensity', 0, 3, 0.05)
+    .name('Intensity')
+    .onChange((v) => { lights.ambientLight.intensity = v; });
+  amb.close();
+
+  // ---- Key (directional) ----
+  const key = folder.addFolder('Key Light');
+  const keyState = {
+    color:     '#' + lights.directionalLight.color.getHexString(),
+    intensity: lights.directionalLight.intensity,
+    x:         lights.directionalLight.position.x,
+    y:         lights.directionalLight.position.y,
+    z:         lights.directionalLight.position.z,
+  };
+  key.addColor(keyState, 'color')
+    .name('Color')
+    .onChange((v) => lights.directionalLight.color.set(v));
+  key.add(keyState, 'intensity', 0, 3, 0.05)
+    .name('Intensity')
+    .onChange((v) => { lights.directionalLight.intensity = v; });
+  key.add(keyState, 'x', -10, 10, 0.1)
+    .name('Pos X')
+    .onChange((v) => { lights.directionalLight.position.x = v; });
+  key.add(keyState, 'y', -10, 10, 0.1)
+    .name('Pos Y')
+    .onChange((v) => { lights.directionalLight.position.y = v; });
+  key.add(keyState, 'z', -10, 10, 0.1)
+    .name('Pos Z')
+    .onChange((v) => { lights.directionalLight.position.z = v; });
+  key.close();
+
+  // ---- Rim ----
+  const rim = folder.addFolder('Rim Light');
+  const rimState = {
+    color:     '#' + lights.rimLight.color.getHexString(),
+    intensity: lights.rimLight.intensity,
+    x:         lights.rimLight.position.x,
+    y:         lights.rimLight.position.y,
+    z:         lights.rimLight.position.z,
+  };
+  rim.addColor(rimState, 'color')
+    .name('Color')
+    .onChange((v) => lights.rimLight.color.set(v));
+  rim.add(rimState, 'intensity', 0, 3, 0.05)
+    .name('Intensity')
+    .onChange((v) => { lights.rimLight.intensity = v; });
+  rim.add(rimState, 'x', -10, 10, 0.1)
+    .name('Pos X')
+    .onChange((v) => { lights.rimLight.position.x = v; });
+  rim.add(rimState, 'y', -10, 10, 0.1)
+    .name('Pos Y')
+    .onChange((v) => { lights.rimLight.position.y = v; });
+  rim.add(rimState, 'z', -10, 10, 0.1)
+    .name('Pos Z')
+    .onChange((v) => { lights.rimLight.position.z = v; });
+  rim.close();
+
+  folder.close();
+
+}
+
+// =========================
+// CAMERA GUI
+// =========================
+
+function setupCameraGUI(gui, camera, controls) {
+
+  if (!camera) return;
+
+  const folder = gui.addFolder('Camera');
+
+  const state = {
+    fov:     camera.fov,
+    posX:    camera.position.x,
+    posY:    camera.position.y,
+    posZ:    camera.position.z,
+    targetX: controls?.target.x ?? 0,
+    targetY: controls?.target.y ?? 1.2,
+    targetZ: controls?.target.z ?? 0,
+  };
+
+  folder.add(state, 'fov', 10, 90, 1)
+    .name('FOV')
+    .onChange((v) => {
+      camera.fov = v;
+      camera.updateProjectionMatrix();
+    });
+
+  folder.add(state, 'posX', -5, 5, 0.05)
+    .name('Pos X')
+    .onChange((v) => { camera.position.x = v; });
+
+  folder.add(state, 'posY', 0, 5, 0.05)
+    .name('Pos Y')
+    .onChange((v) => { camera.position.y = v; });
+
+  folder.add(state, 'posZ', 0.5, 10, 0.05)
+    .name('Pos Z')
+    .onChange((v) => { camera.position.z = v; });
+
+  folder.add(state, 'targetX', -3, 3, 0.05)
+    .name('Target X')
+    .onChange((v) => { if (controls) controls.target.x = v; });
+
+  folder.add(state, 'targetY', 0, 3, 0.05)
+    .name('Target Y')
+    .onChange((v) => { if (controls) controls.target.y = v; });
+
+  folder.add(state, 'targetZ', -3, 3, 0.05)
+    .name('Target Z')
+    .onChange((v) => { if (controls) controls.target.z = v; });
 
   folder.close();
 
