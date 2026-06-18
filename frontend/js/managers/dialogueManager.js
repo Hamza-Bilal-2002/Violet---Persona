@@ -127,6 +127,34 @@ export class DialogueManager {
     this._lipCoupling =
       0.12;
 
+    // ======================
+    // IDLE ANIMATION
+    // ======================
+    //
+    // When Violet hasn't been interacted with for _idleThreshold
+    // seconds and isn't currently speaking, she plays the 'happy'
+    // animation once as a passive ambient reaction. No speech — just
+    // the cute dance. The timer resets after each trigger so she
+    // repeats roughly every _idleThreshold seconds of inactivity.
+    // resetIdle() is called externally (AvatarRuntime) on any user
+    // interaction: wake word, text input, voice input start.
+
+    this._idleElapsed =
+      0;
+
+    this._idleThreshold =
+      180; // 3 minutes
+
+  }
+
+  // ======================
+  // IDLE RESET
+  // ======================
+
+  resetIdle() {
+
+    this._idleElapsed = 0;
+
   }
 
   // ======================
@@ -135,7 +163,7 @@ export class DialogueManager {
 
   enqueue(message) {
 
-    console.log(
+    console.debug(
       'ENQUEUE:',
       message
     );
@@ -203,7 +231,7 @@ export class DialogueManager {
       finalMessage.interrupt
     ) {
 
-      console.log(
+      console.debug(
         'INTERRUPTING CURRENT SPEECH'
       );
 
@@ -309,7 +337,7 @@ export class DialogueManager {
 
   async speak(message) {
 
-    console.log(
+    console.debug(
       'SPEAKING:',
       message
     );
@@ -376,7 +404,7 @@ export class DialogueManager {
 
         URL.revokeObjectURL(url);
 
-        console.log(
+        console.debug(
           'TTS FINISHED (piper)'
         );
 
@@ -423,7 +451,7 @@ export class DialogueManager {
 
       this.playEmotion(message.emotion);
 
-      console.log(
+      console.debug(
         'TTS STARTED (piper)'
       );
 
@@ -468,7 +496,7 @@ export class DialogueManager {
         this.lipSyncManager
           ?.attachUtterance(utterance);
 
-        console.log(
+        console.debug(
           'TTS STARTED (browser)'
         );
 
@@ -477,7 +505,7 @@ export class DialogueManager {
     utterance.onend =
       () => {
 
-        console.log(
+        console.debug(
           'TTS FINISHED (browser)'
         );
 
@@ -490,7 +518,7 @@ export class DialogueManager {
 
         if (err.error === 'interrupted') {
 
-          console.log(
+          console.debug(
             'TTS INTERRUPTED'
           );
 
@@ -529,7 +557,7 @@ export class DialogueManager {
       isSameAnimation
     ) {
 
-      console.log(
+      console.debug(
         'KEEPING CURRENT ANIMATION:',
         name
       );
@@ -538,7 +566,7 @@ export class DialogueManager {
 
     }
 
-    console.log(
+    console.debug(
       'SWITCHING ANIMATION:',
       name
     );
@@ -749,8 +777,26 @@ export class DialogueManager {
 
   update(delta) {
 
+    // Idle animation — accumulate time when not speaking.
+    // When the threshold is reached, play the 'happy' animation once
+    // (no speech) so Violet doesn't feel like a frozen statue.
+
+    if (!this.isSpeaking) {
+
+      this._idleElapsed += delta;
+
+      if (this._idleElapsed >= this._idleThreshold) {
+
+        this._idleElapsed = 0;
+        this.playAnimation('happy');
+
+      }
+
+      return;
+
+    }
+
     if (
-      !this.isSpeaking ||
       !this._ttsStarted ||
       !this._baseEmotionName ||
       !this.expressionManager

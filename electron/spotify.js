@@ -95,6 +95,14 @@ function authenticate() {
   shell.openExternal(authUrl);
 
   return new Promise((resolve, reject) => {
+    // Cancel any in-flight auth before starting a new one so the
+    // old promise doesn't hang forever with no way to reject it.
+    if (_authReject) {
+      _authReject(new Error('auth restarted'));
+      _authResolve = null;
+      _authReject  = null;
+    }
+
     _authResolve = resolve;
     _authReject  = reject;
 

@@ -520,25 +520,4 @@ export class LipSyncManager {
 
   }
 
-  // ======================
-  // BACK-COMPAT
-  // ======================
-
-  stop() {
-
-    // alias for detach() so legacy callers
-    // (DialogueManager pre-edit) don't break.
-
-    this.detach();
-
-  }
-
-  start() {
-
-    // intentional no-op — the new API drives
-    // lip-sync from attachAudio/attachUtterance.
-    // kept so older callers don't throw.
-
-  }
-
 }

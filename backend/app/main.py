@@ -2,15 +2,15 @@
 FastAPI entry point.
 
 One WebSocket route at /chat/ws drives the full dialogue loop. Each
-user message can fan out into a multi-step exchange with Gemini if
+user message can fan out into a multi-step exchange with OpenAI if
 the model decides to call a tool:
 
   1. receive user text frame
-  2. send to Gemini, get back text OR function_call(s)
+  2. send to OpenAI, get back text OR function_call(s)
   3. if function_calls: emit tool_call frames to the client, await
-     matching tool_result frames, send the results back to Gemini,
+     matching tool_result frames, send the results back to OpenAI,
      repeat from (2)
-  4. once Gemini returns text, parse the inline emotion/animation
+  4. once OpenAI returns text, parse the inline emotion/animation
      tags and send the structured reply frame to the client
   5. append the user turn + the final text reply to per-connection
      history (we don't preserve the intermediate tool exchanges —
@@ -61,12 +61,12 @@ SEED_HISTORY_LIMIT = 60
 
 # Tools should resolve quickly — open_url is effectively instant,
 # system calls take a second at most. If a tool hangs past this,
-# we tell Gemini it failed and continue. Bump if Wave 3.3 tools
+# we tell OpenAI it failed and continue. Bump if Wave 3.3 tools
 # (Spotify, Calendar) need longer.
 
 TOOL_TIMEOUT_SECONDS = 30.0
 
-# Cap how many tool-call rounds Gemini can request before we bail.
+# Cap how many tool-call rounds OpenAI can request before we bail.
 # Protects against accidental loops where the model keeps calling
 # tools without ever emitting text. Real conversations should
 # resolve in 1-2 rounds.
@@ -160,7 +160,7 @@ async def chat_ws(websocket: WebSocket):
                 continue
 
             if not final_text:
-                # Gemini produced only tool calls and no text. Shouldn't
+                # OpenAI produced only tool calls and no text. Shouldn't
                 # happen with our system prompt but be defensive — emit
                 # a generic confirmation so the user gets some signal.
                 logger.warning("dialogue turn produced no final text; using fallback")
@@ -210,7 +210,7 @@ async def _run_dialogue_turn(
     session,
     user_text: str,
 ) -> str:
-    """Drive one user turn through Gemini, handling any tool calls.
+    """Drive one user turn through OpenAI, handling any tool calls.
 
     Returns the final text reply (with emotion/animation tags). The
     caller writes it to the WS as a reply frame. History accumulation
@@ -255,7 +255,7 @@ async def _run_dialogue_turn(
 async def _await_tool_result(websocket: WebSocket, tool_id: str) -> dict:
     """Wait for the renderer to return a tool_result frame matching
     tool_id. Drops non-matching frames with a warning so an
-    interleaved user message can't poison the Gemini loop."""
+    interleaved user message can't poison the OpenAI loop."""
 
     try:
         while True:

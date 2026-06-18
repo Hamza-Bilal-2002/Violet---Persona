@@ -25,8 +25,6 @@ from '../managers/lookAtManager.js';
 import { AVATAR_ANIMATIONS }
 from '../config/animations.js';
 
-import { runTestDialogue }
-from '../tests/testDialogue.js';
 
 import { BackendClient }
 from '../backend/BackendClient.js';
@@ -180,7 +178,7 @@ export class AvatarRuntime {
     // the per-frame path doesn't traverse the scene tree each frame.
 
     this._opacityEnabled =
-      true;
+      false;
 
     this._currentOpacity =
       1;
@@ -580,6 +578,12 @@ export class AvatarRuntime {
 
         onStateChange: (state, info) => {
 
+          // Any voice activity resets the idle timer so the happy
+          // dance doesn't fire while the user is mid-conversation.
+          if (state === 'listening' || state === 'transcribing') {
+            this.dialogueManager.resetIdle();
+          }
+
           this.voiceIndicator.setState(
             state,
             info
@@ -612,6 +616,7 @@ export class AvatarRuntime {
 
         onWake: () => {
 
+          this.dialogueManager.resetIdle();
           this.voiceFlow.trigger();
 
         },
@@ -694,9 +699,9 @@ export class AvatarRuntime {
 
     if (ENABLE_TEST_DIALOGUE) {
 
-      runTestDialogue(
-        this.dialogueManager
-      );
+      import('../tests/testDialogue.js').then(({ runTestDialogue }) => {
+        runTestDialogue(this.dialogueManager);
+      });
 
     }
 
@@ -773,6 +778,7 @@ export class AvatarRuntime {
 
       if (!text) return;
 
+      this.dialogueManager.resetIdle();
       this.backendClient.send(text);
 
       input.value = '';
@@ -1227,6 +1233,19 @@ export class AvatarRuntime {
 
     return this._hitRaycaster.ray.intersectsSphere(
       this._avatarBoundingSphere
+    );
+
+  }
+
+  // ======================
+  // DISPOSE
+  // ======================
+
+  dispose() {
+
+    window.removeEventListener(
+      'mousemove',
+      this._onMouseMoveTrack
     );
 
   }
