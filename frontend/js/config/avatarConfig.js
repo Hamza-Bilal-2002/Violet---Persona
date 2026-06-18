@@ -229,4 +229,18 @@ export const AVATAR_CONFIG = {
 
   },
 
+  // ======================
+  // TEXT INPUT
+  // ======================
+  //
+  // Pixel offsets applied ON TOP of the auto-computed avatar-centred
+  // position. Positive X nudges right, positive Y nudges up.
+
+  textInput: {
+
+    offsetX: 0,
+    offsetY: 0,
+
+  },
+
 };

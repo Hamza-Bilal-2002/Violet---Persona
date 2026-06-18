@@ -374,6 +374,14 @@ export class RuntimeController {
 
     }
 
+    // Text input offsets.
+
+    if (s.textInput) {
+
+      Object.assign(AVATAR_CONFIG.textInput, s.textInput);
+
+    }
+
     // Lighting
 
     if (s.lighting) {

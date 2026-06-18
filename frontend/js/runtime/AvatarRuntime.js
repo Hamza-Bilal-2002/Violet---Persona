@@ -849,12 +849,13 @@ export class AvatarRuntime {
     // Avatar left edge in CSS pixels from the left of the screen.
     const avatarLeft = canvasW - idealW - v.marginRight;
 
-    // Center the 256px input under the avatar.
+    // Center the 256px input under the avatar, then apply user offsets.
     const inputWidth = 256;
-    const inputLeft  = Math.max(4, avatarLeft + (idealW - inputWidth) / 2);
+    const ti         = AVATAR_CONFIG.textInput;
+    const inputLeft  = Math.max(4, avatarLeft + (idealW - inputWidth) / 2 + (ti.offsetX || 0));
 
     // Sit just inside the gap between the avatar bottom and the taskbar.
-    const inputBottom = Math.max(4, v.marginBottom - 4);
+    const inputBottom = Math.max(4, v.marginBottom - 4 + (ti.offsetY || 0));
 
     this._electronTextInput.style.left   = `${inputLeft}px`;
     this._electronTextInput.style.bottom = `${inputBottom}px`;

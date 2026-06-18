@@ -120,6 +120,8 @@ export function setupGUI(
 
         const v = AVATAR_CONFIG.viewport;
 
+        const ti = AVATAR_CONFIG.textInput;
+
         const data = {
 
           viewport: {
@@ -131,6 +133,11 @@ export function setupGUI(
             heightFraction: v.heightFraction,
             heightMin:      v.heightMin,
             heightMax:      v.heightMax,
+          },
+
+          textInput: {
+            offsetX: ti.offsetX,
+            offsetY: ti.offsetY,
           },
 
           lighting: {
@@ -603,18 +610,30 @@ function setupPositionGUI(gui) {
 
   const folder = gui.addFolder('Position');
 
+  const ti = AVATAR_CONFIG.textInput;
+
   const state = {
-    marginRight:  v.marginRight,
-    marginBottom: v.marginBottom,
+    marginRight:    v.marginRight,
+    marginBottom:   v.marginBottom,
+    textInputX:     ti.offsetX,
+    textInputY:     ti.offsetY,
   };
 
   folder.add(state, 'marginRight', 0, 1200, 1)
-    .name('Offset Right')
+    .name('Avatar Offset Right')
     .onChange((val) => { AVATAR_CONFIG.viewport.marginRight = val; });
 
   folder.add(state, 'marginBottom', 0, 200, 1)
-    .name('Offset Bottom')
+    .name('Avatar Offset Bottom')
     .onChange((val) => { AVATAR_CONFIG.viewport.marginBottom = val; });
+
+  folder.add(state, 'textInputX', -400, 400, 1)
+    .name('Textbox Nudge X')
+    .onChange((val) => { AVATAR_CONFIG.textInput.offsetX = val; });
+
+  folder.add(state, 'textInputY', -200, 200, 1)
+    .name('Textbox Nudge Y')
+    .onChange((val) => { AVATAR_CONFIG.textInput.offsetY = val; });
 
   folder.close();
 
