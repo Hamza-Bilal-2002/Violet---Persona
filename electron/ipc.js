@@ -9,6 +9,7 @@ const { ipcMain } = require('electron');
 const { getMainWindow } = require('./window');
 const { isWakeWordEnabled, isOpacityOnHoverEnabled, isTextInputEnabled } = require('./tray');
 const tools = require('./tools');
+const { loadSettings, saveSettings } = require('./userSettings');
 
 function registerIpcHandlers() {
 
@@ -137,6 +138,16 @@ function registerIpcHandlers() {
 
     }
   );
+
+  // Settings: renderer reads saved settings on startup and writes
+  // them when the user clicks "Save Settings" in the debug GUI.
+
+  ipcMain.handle('persona:get-settings', () => loadSettings());
+
+  ipcMain.handle('persona:save-settings', (_event, data) => {
+    saveSettings(data);
+    return { ok: true };
+  });
 
   // Phase 3 (Wave 3.1): renderer relays a tool_call from the backend
   // here. We dispatch to electron/tools/index.js and return either

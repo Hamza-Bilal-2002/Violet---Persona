@@ -163,6 +163,13 @@ contextBridge.exposeInMainWorld(
 
     },
 
+    // Persistent settings — read on startup, written by the debug GUI
+    // "Save Settings" button. Both return Promises (IPC invoke).
+
+    getSettings: () => ipcRenderer.invoke('persona:get-settings'),
+
+    saveSettings: (data) => ipcRenderer.invoke('persona:save-settings', data),
+
     // Phase 3 Wave 3.1: execute a tool in the main process. Returns
     // a Promise resolving to {result} on success or {error} on
     // failure. BackendClient relays this from tool_call frames the

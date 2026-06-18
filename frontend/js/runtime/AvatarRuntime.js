@@ -41,6 +41,9 @@ from '../voice/WakeWordClient.js';
 import { TtsClient }
 from '../tts/TtsClient.js';
 
+import { AVATAR_CONFIG }
+from '../config/avatarConfig.js';
+
 // Backend wiring config. When the backend container is running
 // (docker compose up), the WebSocket at this URL drives dialogue.
 // If the connection fails, the offline test dialogue still runs
@@ -752,8 +755,6 @@ export class AvatarRuntime {
 
     Object.assign(input.style, {
       position:        'fixed',
-      bottom:          '14px',
-      right:           '24px',
       width:           '256px',
       padding:         '7px 14px',
       borderRadius:    '20px',
@@ -769,6 +770,8 @@ export class AvatarRuntime {
       zIndex:          '999999',
       webkitAppRegion: 'no-drag',
     });
+
+    this._electronTextInput = input;
 
     input.addEventListener('keydown', (e) => {
 
@@ -787,7 +790,11 @@ export class AvatarRuntime {
 
     document.body.appendChild(input);
 
-    this._electronTextInput = input;
+    // Position it under the avatar now, then keep it in sync every
+    // frame via RAF so it follows avatar position changes (debug GUI
+    // "Position" sliders) and window resizes without needing events.
+    this._updateTextInputPosition();
+    this._startTextInputPositionLoop();
 
     // Wire the tray toggle sent from ipc.js on persona:ready and on
     // each subsequent tray checkbox click.
@@ -816,6 +823,55 @@ export class AvatarRuntime {
       );
 
     }
+
+  }
+
+  // ----------------------------------------------------------------
+  // Text input positioning — anchors the pill input to the
+  // horizontal center of the avatar viewport, just above the
+  // bottom of the screen. Reads AVATAR_CONFIG.viewport live so it
+  // reacts to debug-GUI Position slider changes without extra wiring.
+  // ----------------------------------------------------------------
+
+  _updateTextInputPosition() {
+
+    if (!this._electronTextInput) return;
+
+    const v       = AVATAR_CONFIG.viewport;
+    const canvasW = window.innerWidth;
+
+    const idealW =
+      Math.min(
+        v.widthMax,
+        Math.max(v.widthMin, canvasW * v.widthFraction)
+      );
+
+    // Avatar left edge in CSS pixels from the left of the screen.
+    const avatarLeft = canvasW - idealW - v.marginRight;
+
+    // Center the 256px input under the avatar.
+    const inputWidth = 256;
+    const inputLeft  = Math.max(4, avatarLeft + (idealW - inputWidth) / 2);
+
+    // Sit just inside the gap between the avatar bottom and the taskbar.
+    const inputBottom = Math.max(4, v.marginBottom - 4);
+
+    this._electronTextInput.style.left   = `${inputLeft}px`;
+    this._electronTextInput.style.bottom = `${inputBottom}px`;
+    this._electronTextInput.style.right  = '';
+
+  }
+
+  _startTextInputPositionLoop() {
+
+    const tick = () => {
+
+      this._updateTextInputPosition();
+      this._textInputRaf = requestAnimationFrame(tick);
+
+    };
+
+    this._textInputRaf = requestAnimationFrame(tick);
 
   }
 

@@ -70,6 +70,30 @@ function rebuildTrayMenu() {
       click: toggleWindow,
     },
 
+    {
+      label: 'Reload Avatar',
+      click: () => {
+        const w = getMainWindow();
+        if (w) w.webContents.reload();
+      },
+    },
+
+    { type: 'separator' },
+
+    {
+      label: 'Settings...',
+      click: () => {
+        // Opens the debug GUI (the settings surface). If it's
+        // already open this is a no-op so the user doesn't
+        // get a toggle-off surprise.
+        if (debugGuiVisible) return;
+        debugGuiVisible = true;
+        const w = getMainWindow();
+        if (w) w.webContents.send('persona:toggle-debug-gui', true);
+        rebuildTrayMenu();
+      },
+    },
+
     { type: 'separator' },
 
     {

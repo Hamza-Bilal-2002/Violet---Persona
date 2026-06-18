@@ -88,10 +88,10 @@ export const AVATAR_CONFIG = {
     ambient: {
 
       color:
-        0xffffff,
+        0xf8f6ba,
 
       intensity:
-        1.2,
+        0.75,
 
     },
 

@@ -166,6 +166,18 @@ export class RuntimeController {
     }
 
     // ======================
+    // LOAD SAVED SETTINGS
+    // ======================
+    //
+    // Read violet-settings.json from userData and apply to live
+    // objects. Must run after the debug GUI so the GUI sliders show
+    // the right initial values on next open (they capture at
+    // construction time; applying settings here doesn't retro-update
+    // their display state, but the live objects are correct).
+
+    await this._loadAndApplySettings();
+
+    // ======================
     // UPDATE LOOP
     // ======================
 
@@ -315,6 +327,125 @@ export class RuntimeController {
       }
 
     );
+
+  }
+
+  // ----------------------------------------------------------------
+  // Settings persistence
+  // ----------------------------------------------------------------
+
+  async _loadAndApplySettings() {
+
+    if (
+      typeof window === 'undefined' ||
+      !window.personaShell ||
+      typeof window.personaShell.getSettings !== 'function'
+    ) {
+      return;
+    }
+
+    try {
+
+      const settings = await window.personaShell.getSettings();
+
+      if (settings) {
+        this._applySettings(settings);
+      }
+
+    } catch (err) {
+
+      console.warn('[RuntimeController] failed to load settings:', err);
+
+    }
+
+  }
+
+  _applySettings(s) {
+
+    if (!s) return;
+
+    // Viewport position — mutate AVATAR_CONFIG in place so
+    // getAvatarViewport() and the text-input RAF loop both pick up
+    // the new values on the very next frame.
+
+    if (s.viewport) {
+
+      Object.assign(AVATAR_CONFIG.viewport, s.viewport);
+
+    }
+
+    // Lighting
+
+    if (s.lighting) {
+
+      const { ambient, directional } = s.lighting;
+
+      if (ambient) {
+
+        if (ambient.color !== undefined) {
+          this.lights.ambientLight.color.set(ambient.color);
+        }
+
+        if (ambient.intensity !== undefined) {
+          this.lights.ambientLight.intensity = ambient.intensity;
+        }
+
+      }
+
+      if (directional) {
+
+        if (directional.color !== undefined) {
+          this.lights.directionalLight.color.set(directional.color);
+        }
+
+        if (directional.intensity !== undefined) {
+          this.lights.directionalLight.intensity = directional.intensity;
+        }
+
+        if (directional.position) {
+          this.lights.directionalLight.position.set(
+            directional.position.x ?? this.lights.directionalLight.position.x,
+            directional.position.y ?? this.lights.directionalLight.position.y,
+            directional.position.z ?? this.lights.directionalLight.position.z,
+          );
+        }
+
+      }
+
+    }
+
+    // Camera
+
+    if (s.camera) {
+
+      if (s.camera.fov !== undefined) {
+        this.camera.fov = s.camera.fov;
+        this.camera.updateProjectionMatrix();
+      }
+
+      if (s.camera.position) {
+        this.camera.position.set(
+          s.camera.position.x ?? this.camera.position.x,
+          s.camera.position.y ?? this.camera.position.y,
+          s.camera.position.z ?? this.camera.position.z,
+        );
+      }
+
+    }
+
+    // Orbit controls target
+
+    if (s.controls && s.controls.target && this.controls) {
+
+      this.controls.target.set(
+        s.controls.target.x ?? this.controls.target.x,
+        s.controls.target.y ?? this.controls.target.y,
+        s.controls.target.z ?? this.controls.target.z,
+      );
+
+    }
+
+    console.log('[RuntimeController] settings applied');
 
   }
 

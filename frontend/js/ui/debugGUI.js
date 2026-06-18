@@ -1,4 +1,5 @@
 import GUI from 'lil-gui';
+import { AVATAR_CONFIG } from '../config/avatarConfig.js';
 
 export function setupGUI(
 
@@ -87,6 +88,97 @@ export function setupGUI(
     camera,
     controls
   );
+
+  // =========================
+  // AVATAR POSITION
+  // =========================
+  //
+  // Controls marginRight and marginBottom in AVATAR_CONFIG.viewport.
+  // Changes take effect on the next rendered frame (getAvatarViewport
+  // reads AVATAR_CONFIG live). The text input also tracks these via
+  // the RAF position loop in AvatarRuntime.
+
+  setupPositionGUI(gui);
+
+  // =========================
+  // SAVE SETTINGS
+  // =========================
+  //
+  // Captures the current live state of all tweakable objects and
+  // ships it to the Electron main process to persist in userData.
+  // Only available when running inside the Electron shell.
+
+  if (
+    typeof window !== 'undefined' &&
+    window.personaShell &&
+    typeof window.personaShell.saveSettings === 'function'
+  ) {
+
+    const actions = {
+
+      saveSettings: () => {
+
+        const v = AVATAR_CONFIG.viewport;
+
+        const data = {
+
+          viewport: {
+            marginRight:    v.marginRight,
+            marginBottom:   v.marginBottom,
+            widthFraction:  v.widthFraction,
+            widthMin:       v.widthMin,
+            widthMax:       v.widthMax,
+            heightFraction: v.heightFraction,
+            heightMin:      v.heightMin,
+            heightMax:      v.heightMax,
+          },
+
+          lighting: {
+            ambient: {
+              color:     '#' + lights.ambientLight.color.getHexString(),
+              intensity: lights.ambientLight.intensity,
+            },
+            directional: {
+              color:     '#' + lights.directionalLight.color.getHexString(),
+              intensity: lights.directionalLight.intensity,
+              position: {
+                x: lights.directionalLight.position.x,
+                y: lights.directionalLight.position.y,
+                z: lights.directionalLight.position.z,
+              },
+            },
+          },
+
+          camera: {
+            fov: camera.fov,
+            position: {
+              x: camera.position.x,
+              y: camera.position.y,
+              z: camera.position.z,
+            },
+          },
+
+          controls: controls ? {
+            target: {
+              x: controls.target.x,
+              y: controls.target.y,
+              z: controls.target.z,
+            },
+          } : undefined,
+
+        };
+
+        window.personaShell.saveSettings(data)
+          .then(() => console.log('[debugGUI] settings saved'))
+          .catch((err) => console.error('[debugGUI] save failed', err));
+
+      },
+
+    };
+
+    gui.add(actions, 'saveSettings').name('💾 Save Settings');
+
+  }
 
   // Default to hidden — the polished desktop overlay should
   // not display debug controls on launch. The tray "Debug GUI"
@@ -493,5 +585,37 @@ function setupAnimationGUI(
     );
 
   folder.open();
+
+}
+
+// =========================
+// POSITION GUI
+// =========================
+//
+// Controls the avatar's on-screen placement by mutating
+// AVATAR_CONFIG.viewport directly. getAvatarViewport() reads that
+// object every frame, so changes take effect immediately.
+// The text input position tracks the same values via its RAF loop.
+
+function setupPositionGUI(gui) {
+
+  const v = AVATAR_CONFIG.viewport;
+
+  const folder = gui.addFolder('Position');
+
+  const state = {
+    marginRight:  v.marginRight,
+    marginBottom: v.marginBottom,
+  };
+
+  folder.add(state, 'marginRight', 0, 1200, 1)
+    .name('Offset Right')
+    .onChange((val) => { AVATAR_CONFIG.viewport.marginRight = val; });
+
+  folder.add(state, 'marginBottom', 0, 200, 1)
+    .name('Offset Bottom')
+    .onChange((val) => { AVATAR_CONFIG.viewport.marginBottom = val; });
+
+  folder.close();
 
 }
