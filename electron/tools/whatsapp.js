@@ -124,72 +124,142 @@ async function disconnect() {
   _setStatus('disconnected');
 }
 
-async function sendWhatsApp({ to, message }) {
-  if (!to || !message) {
-    throw new Error('send_whatsapp requires both "to" and "message"');
+const PHONE_RE = /^[\d\s+\-()\\.]+$/;
+
+function _escapeRegex(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Send a WhatsApp message. Prefers an explicit `chatId` (resolved and
+// confirmed via the frontend picker) so the message goes to EXACTLY the
+// contact the user approved. Falls back to resolving `to` only when no
+// chatId is supplied (e.g. a direct call that skipped confirmation).
+//
+// Always targets a verified WhatsApp chat id. A bare `<digits>@c.us` for
+// a number that isn't on WhatsApp makes sendMessage report success
+// without delivering — getNumberId() guards against that silent failure.
+
+async function sendWhatsApp({ to, message, chatId }) {
+  if (!message) {
+    throw new Error('send_whatsapp requires a "message"');
   }
 
   const client = await init();
 
-  let chatId;
+  let targetId = chatId;
 
-  if (/^[\d\s+\-()\\.]+$/.test(to.trim())) {
-    const digits = to.replace(/\D/g, '');
-    chatId = `${digits}@c.us`;
-  } else {
-    const contacts = await client.getContacts();
-    const needle   = to.toLowerCase();
-    const match    = contacts.find(
-      (c) => c.name && c.name.toLowerCase().includes(needle)
-    );
-    if (!match) {
-      throw new Error(
-        `WhatsApp contact not found: "${to}". ` +
-        `Try their phone number (e.g. +923001234567) instead.`
-      );
+  if (!targetId) {
+    if (!to) {
+      throw new Error('send_whatsapp requires "to" or "chatId"');
     }
-    chatId = match.id._serialized;
+
+    if (PHONE_RE.test(to.trim())) {
+      const digits   = to.replace(/\D/g, '');
+      const numberId = await client.getNumberId(digits);
+      if (!numberId) {
+        throw new Error(`${to} is not a WhatsApp number.`);
+      }
+      targetId = numberId._serialized;
+    } else {
+      const { matches } = await resolveContact(to);
+      if (!matches.length) {
+        throw new Error(
+          `WhatsApp contact not found: "${to}". ` +
+          `Try their phone number (e.g. +923001234567) instead.`
+        );
+      }
+      targetId = matches[0].chatId;
+    }
   }
 
-  await client.sendMessage(chatId, message);
-  return { sent: true, to, message };
+  await client.sendMessage(targetId, message);
+  return { sent: true, to, chatId: targetId, message };
 }
 
-// Resolve a contact by name or phone number without sending.
-// Returns { chatId, name, profilePicUrl }.
+// Resolve a contact (or contacts) by name or phone number without
+// sending. Returns { query, matches: [{ chatId, name, number,
+// profilePicUrl }] } ranked best-first. The frontend shows a picker
+// when more than one matches, so the user disambiguates between
+// multiple "Ahmed" entries before confirming the send.
 
 async function resolveContact(to) {
   if (!to) throw new Error('resolveContact requires a "to" argument');
 
   const client = await init();
 
-  if (/^[\d\s+\-()\\.]+$/.test(to.trim())) {
+  // ── Phone number path ──────────────────────────────────────────────
+  if (PHONE_RE.test(to.trim())) {
     const digits = to.replace(/\D/g, '');
-    const chatId  = `${digits}@c.us`;
-    let name = to;
+
+    let numberId = null;
+    try { numberId = await client.getNumberId(digits); } catch { /* offline */ }
+
+    if (!numberId) {
+      return { query: to, matches: [] }; // not on WhatsApp
+    }
+
+    const chatId = numberId._serialized;
+    let name   = `+${digits}`;
+    let number = `+${digits}`;
     let profilePicUrl = null;
     try {
       const contact = await client.getContactById(chatId);
-      name = contact.pushname || contact.name || to;
-    } catch { /* unknown number — use raw input as name */ }
+      name   = contact.pushname || contact.name || name;
+      number = contact.number ? `+${contact.number}` : number;
+    } catch { /* unknown number — keep raw */ }
     try { profilePicUrl = await client.getProfilePicUrl(chatId); } catch { /* no pic */ }
-    return { chatId, name, profilePicUrl };
+
+    return { query: to, matches: [{ chatId, name, number, profilePicUrl }] };
   }
 
+  // ── Name path ──────────────────────────────────────────────────────
+  const needle   = to.toLowerCase().trim();
+  const wordRe   = new RegExp(`\\b${_escapeRegex(needle)}`);
   const contacts = await client.getContacts();
-  const needle   = to.toLowerCase();
-  const match    = contacts.find(
-    (c) => c.name && c.name.toLowerCase().includes(needle)
-  );
-  if (!match) {
-    throw new Error(
-      `WhatsApp contact not found: "${to}". ` +
-      `Try their phone number (e.g. +923001234567) instead.`
-    );
+
+  // Only real, individual WhatsApp users with a usable name. Score each
+  // by match quality so an exact "Ahmed" outranks "Saad Ahmed".
+  const scored = [];
+  for (const c of contacts) {
+    if (!c.isWAContact || c.isGroup || c.isMe) continue;
+    if (!c.id || c.id.server !== 'c.us') continue;
+
+    const display = c.name || c.pushname;
+    if (!display) continue;
+
+    const nm = display.toLowerCase();
+    let score;
+    if (nm === needle)              score = 0; // exact
+    else if (nm.startsWith(needle)) score = 1; // prefix
+    else if (wordRe.test(nm))       score = 2; // word boundary ("Saad Ahmed")
+    else if (nm.includes(needle))   score = 3; // substring
+    else continue;
+
+    scored.push({ c, display, score });
   }
-  let profilePicUrl = null;
-  try { profilePicUrl = await client.getProfilePicUrl(match.id._serialized); } catch { /* no pic */ }
-  return { chatId: match.id._serialized, name: match.name || to, profilePicUrl };
+
+  // Best score first; alphabetical within a score for stable ordering.
+  scored.sort((a, b) =>
+    a.score - b.score || a.display.localeCompare(b.display)
+  );
+
+  const top = scored.slice(0, 6);
+
+  // Fetch profile pics in parallel to stay within the frontend's resolve
+  // timeout even with several candidates.
+  const matches = await Promise.all(top.map(async ({ c, display }) => {
+    let profilePicUrl = null;
+    try { profilePicUrl = await client.getProfilePicUrl(c.id._serialized); }
+    catch { /* no pic */ }
+    return {
+      chatId:  c.id._serialized,
+      name:    display,
+      number:  c.number ? `+${c.number}` : '',
+      profilePicUrl,
+    };
+  }));
+
+  return { query: to, matches };
 }
 
 module.exports = {
