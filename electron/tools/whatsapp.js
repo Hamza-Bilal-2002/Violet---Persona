@@ -1,28 +1,51 @@
 // WhatsApp message sender via whatsapp-web.js.
 //
-// First run: a QR code appears in the Electron terminal — scan it with
-// the WhatsApp app on your phone (Linked Devices → Link a Device).
-// The session is stored in Electron userData and survives restarts so
-// you only scan once.
+// Session is stored in Electron userData and survives restarts.
+// QR codes are shown as a scannable image in a small popup window
+// (not in the terminal) via the 'qr' event on the status emitter.
 //
 // Contact resolution:
 //   - If `to` is a phone number (digits, +, -, spaces) → formats as WA chat ID
 //   - Otherwise does a case-insensitive partial name search in your contacts
 
 const path = require('path');
+const { EventEmitter } = require('events');
 
-let _client   = null;
-let _ready    = false;
+const _emitter = new EventEmitter();
+
+let _client      = null;
+let _ready       = false;
 let _initPromise = null;
+let _status      = 'disconnected'; // 'disconnected' | 'connecting' | 'connected'
+
+function _setStatus(s) {
+  _status = s;
+  _emitter.emit('status', s);
+}
+
+function getStatus() {
+  return _status;
+}
+
+function onStatusChange(fn) {
+  _emitter.on('status', fn);
+}
+
+function onQr(fn) {
+  _emitter.on('qr', fn);
+}
 
 function init() {
   if (_initPromise) return _initPromise;
+
+  _setStatus('connecting');
 
   _initPromise = new Promise((resolve, reject) => {
     let Client, LocalAuth;
     try {
       ({ Client, LocalAuth } = require('whatsapp-web.js'));
     } catch {
+      _setStatus('disconnected');
       return reject(new Error(
         'whatsapp-web.js not installed — run: cd electron && npm install'
       ));
@@ -44,16 +67,8 @@ function init() {
     });
 
     client.on('qr', (qr) => {
-      console.log('\n[WhatsApp] ─────────────────────────────────────');
-      console.log('[WhatsApp] Scan this QR code to link your account:');
-      console.log('[WhatsApp] ─────────────────────────────────────\n');
-      try {
-        require('qrcode-terminal').generate(qr, { small: true });
-      } catch {
-        // qrcode-terminal not installed — print raw string
-        console.log('[WhatsApp] QR data (paste into qr-code decoder):\n', qr);
-      }
-      console.log('\n[WhatsApp] Waiting for scan...\n');
+      console.log('[WhatsApp] QR code received — showing popup window');
+      _emitter.emit('qr', qr);
     });
 
     client.on('authenticated', () => {
@@ -64,11 +79,14 @@ function init() {
       console.log('[WhatsApp] Ready — messages can now be sent.');
       _ready  = true;
       _client = client;
+      _setStatus('connected');
+      _emitter.emit('qr-done'); // signal QR window to close
       resolve(client);
     });
 
     client.on('auth_failure', (msg) => {
       _initPromise = null;
+      _setStatus('disconnected');
       reject(new Error(`WhatsApp auth failed: ${msg}`));
     });
 
@@ -77,16 +95,33 @@ function init() {
       _ready       = false;
       _client      = null;
       _initPromise = null;
+      _setStatus('disconnected');
     });
 
     client.initialize().catch((err) => {
       _initPromise = null;
+      _setStatus('disconnected');
       reject(err);
     });
   });
 
-  _initPromise.catch(() => { _initPromise = null; });
+  _initPromise.catch(() => {
+    _initPromise = null;
+    _setStatus('disconnected');
+  });
+
   return _initPromise;
+}
+
+async function disconnect() {
+  if (_client) {
+    try { await _client.logout(); } catch { /* already logged out */ }
+    try { await _client.destroy(); } catch { /* already destroyed */ }
+  }
+  _client      = null;
+  _ready       = false;
+  _initPromise = null;
+  _setStatus('disconnected');
 }
 
 async function sendWhatsApp({ to, message }) {
@@ -99,11 +134,9 @@ async function sendWhatsApp({ to, message }) {
   let chatId;
 
   if (/^[\d\s+\-()\\.]+$/.test(to.trim())) {
-    // Phone number — strip everything except digits
     const digits = to.replace(/\D/g, '');
     chatId = `${digits}@c.us`;
   } else {
-    // Contact name — case-insensitive partial match
     const contacts = await client.getContacts();
     const needle   = to.toLowerCase();
     const match    = contacts.find(
@@ -123,8 +156,7 @@ async function sendWhatsApp({ to, message }) {
 }
 
 // Resolve a contact by name or phone number without sending.
-// Returns { chatId, name, profilePicUrl } — used by the frontend
-// to render the confirmation card before the user approves the send.
+// Returns { chatId, name, profilePicUrl }.
 
 async function resolveContact(to) {
   if (!to) throw new Error('resolveContact requires a "to" argument');
@@ -160,4 +192,13 @@ async function resolveContact(to) {
   return { chatId: match.id._serialized, name: match.name || to, profilePicUrl };
 }
 
-module.exports = { sendWhatsApp, resolveContact, init };
+module.exports = {
+  sendWhatsApp,
+  resolveContact,
+  init,
+  disconnect,
+  getStatus,
+  onStatusChange,
+  onQr,
+  _emitter,
+};

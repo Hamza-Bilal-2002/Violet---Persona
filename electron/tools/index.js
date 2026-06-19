@@ -37,14 +37,7 @@ const sleepPc = require('./sleepPc');
 const spotifyPlay    = require('./spotifyPlay');
 const spotifyControl = require('./spotifyControl');
 const mediaControl   = require('./mediaControl');
-const { sendWhatsApp, init: initWhatsApp } = require('./whatsapp');
-
-// Kick off WhatsApp init in the background so the QR code appears in
-// the terminal on first launch rather than blocking the first send.
-initWhatsApp().catch(() => {
-  // Silently swallow — whatsapp-web.js may not be installed yet, or the
-  // user hasn't scanned yet. Errors surface when send_whatsapp is called.
-});
+const { sendWhatsApp } = require('./whatsapp');
 
 const REGISTRY = {
 

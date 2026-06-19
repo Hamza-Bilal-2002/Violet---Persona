@@ -1,10 +1,7 @@
 // Persona desktop shell — tray.
 //
-// System tray icon + context menu. The menu has three toggles
-// (Show/Hide, Debug GUI, DevTools) and one action (Pin to Taskbar)
-// plus Quit. Menu items are immutable once built; the menu is
-// rebuilt whenever a checkbox state changes so the displayed state
-// always matches reality.
+// System tray icon + context menu. Rebuilt whenever any state changes
+// (WhatsApp status, Spotify auth, checkbox toggles).
 
 const {
   app,
@@ -14,6 +11,8 @@ const {
 } = require('electron');
 
 const spotify = require('./spotify');
+const { showQr, hideQr } = require('./qrWindow');
+const whatsapp = require('./tools/whatsapp');
 
 const {
   AGENT_NAME,
@@ -27,41 +26,91 @@ const {
 
 let tray = null;
 
-// Checkbox state — module-scope so rebuildTrayMenu can read the
-// latest values when regenerating the template.
+// ─── Checkbox / toggle state ──────────────────────────────────────────────────
 
-let debugGuiVisible = false;
-let devToolsOpen = false;
-
-// Wake word defaults to ON now that the wake/ container starts
-// automatically with the rest of the stack. The user can flip it
-// off from the tray menu for privacy moments. The renderer is
-// notified of this initial state in ipc.js when 'persona:ready'
-// fires (everything else needed for wake is up by then).
-
-let wakeWordEnabled = true;
-
-// Phase 4 Wave 4.1: fade the avatar's material opacity when the
-// cursor approaches her, so she stops feeling like a popup
-// blocking work. Default OFF per user preference — opt in via the
-// tray menu when wanted. The renderer is notified of the initial
-// state at 'persona:ready' alongside wake word.
-
+let debugGuiVisible       = false;
+let devToolsOpen          = false;
+let wakeWordEnabled       = true;
 let opacityOnHoverEnabled = false;
+let textInputEnabled      = false;
 
-// Text input overlay — togglable from the tray so Violet can be
-// typed at without a mic (e.g. office / silent environment).
-// Default OFF.
+// ─── Service status labels ────────────────────────────────────────────────────
 
-let textInputEnabled = false;
+function _waDot() {
+  const s = whatsapp.getStatus();
+  if (s === 'connected')  return '🟢';
+  if (s === 'connecting') return '🟡';
+  return '🔴';
+}
+
+function _spotifyDot() {
+  return spotify.isAuthenticated() ? '🟢' : '🔴';
+}
+
+// ─── Tray menu build ──────────────────────────────────────────────────────────
 
 function rebuildTrayMenu() {
-
-  if (!tray) {
-    return;
-  }
+  if (!tray) return;
 
   const mainWindow = getMainWindow();
+  const waStatus   = whatsapp.getStatus();
+
+  const waSubmenu = waStatus === 'connected'
+    ? [
+        {
+          label: 'Disconnect WhatsApp',
+          click: () => {
+            whatsapp.disconnect().catch((err) => {
+              console.error('[tray] WhatsApp disconnect error:', err.message);
+            });
+          },
+        },
+      ]
+    : waStatus === 'connecting'
+    ? [
+        { label: 'Connecting… (scan QR window)', enabled: false },
+        {
+          label: 'Cancel',
+          click: () => {
+            whatsapp.disconnect().catch(() => {});
+            hideQr();
+          },
+        },
+      ]
+    : [
+        {
+          label: 'Connect WhatsApp',
+          click: () => {
+            whatsapp.init().catch((err) => {
+              console.error('[tray] WhatsApp connect error:', err.message);
+            });
+            rebuildTrayMenu();
+          },
+        },
+      ];
+
+  const spotifySubmenu = spotify.isAuthenticated()
+    ? [
+        {
+          label: 'Disconnect Spotify',
+          click: () => {
+            spotify.disconnect();
+            rebuildTrayMenu();
+          },
+        },
+      ]
+    : [
+        {
+          label: 'Connect Spotify',
+          click: () => {
+            spotify.authenticate()
+              .then(() => rebuildTrayMenu())
+              .catch((err) => {
+                console.error('[tray] Spotify auth failed:', err.message);
+              });
+          },
+        },
+      ];
 
   const contextMenu = Menu.buildFromTemplate([
 
@@ -83,9 +132,6 @@ function rebuildTrayMenu() {
     {
       label: 'Settings...',
       click: () => {
-        // Opens the debug GUI (the settings surface). If it's
-        // already open this is a no-op so the user doesn't
-        // get a toggle-off surprise.
         if (debugGuiVisible) return;
         debugGuiVisible = true;
         const w = getMainWindow();
@@ -97,159 +143,89 @@ function rebuildTrayMenu() {
     { type: 'separator' },
 
     {
-      label: 'Wake Word',
-      type: 'checkbox',
+      label:   'Wake Word',
+      type:    'checkbox',
       checked: wakeWordEnabled,
-      click: (menuItem) => {
-
+      click:   (menuItem) => {
         wakeWordEnabled = menuItem.checked;
-
         if (mainWindow) {
-
-          mainWindow.webContents.send(
-            'persona:toggle-wake-word',
-            wakeWordEnabled
-          );
-
+          mainWindow.webContents.send('persona:toggle-wake-word', wakeWordEnabled);
         }
-
       },
     },
 
     {
-      label: 'Text Input',
-      type: 'checkbox',
+      label:   'Text Input',
+      type:    'checkbox',
       checked: textInputEnabled,
-      click: (menuItem) => {
-
+      click:   (menuItem) => {
         textInputEnabled = menuItem.checked;
-
         if (mainWindow) {
-
-          mainWindow.webContents.send(
-            'persona:toggle-text-input',
-            textInputEnabled
-          );
-
+          mainWindow.webContents.send('persona:toggle-text-input', textInputEnabled);
         }
-
       },
     },
 
     {
-      label: 'Fade on Hover',
-      type: 'checkbox',
+      label:   'Fade on Hover',
+      type:    'checkbox',
       checked: opacityOnHoverEnabled,
-      click: (menuItem) => {
-
+      click:   (menuItem) => {
         opacityOnHoverEnabled = menuItem.checked;
-
         if (mainWindow) {
-
-          mainWindow.webContents.send(
-            'persona:toggle-opacity-on-hover',
-            opacityOnHoverEnabled
-          );
-
+          mainWindow.webContents.send('persona:toggle-opacity-on-hover', opacityOnHoverEnabled);
         }
-
       },
     },
 
     {
-      label: 'Debug GUI',
-      type: 'checkbox',
+      label:   'Debug GUI',
+      type:    'checkbox',
       checked: debugGuiVisible,
-      click: (menuItem) => {
-
+      click:   (menuItem) => {
         debugGuiVisible = menuItem.checked;
-
         if (mainWindow) {
-
-          mainWindow.webContents.send(
-            'persona:toggle-debug-gui',
-            debugGuiVisible
-          );
-
+          mainWindow.webContents.send('persona:toggle-debug-gui', debugGuiVisible);
         }
-
       },
     },
 
     {
-      label: 'DevTools',
-      type: 'checkbox',
+      label:   'DevTools',
+      type:    'checkbox',
       checked: devToolsOpen,
-      click: (menuItem) => {
-
-        if (!mainWindow) {
-          return;
-        }
-
+      click:   (menuItem) => {
+        if (!mainWindow) return;
         if (menuItem.checked) {
-
-          mainWindow.webContents.openDevTools({
-            mode: 'detach',
-          });
-
+          mainWindow.webContents.openDevTools({ mode: 'detach' });
         } else {
-
           mainWindow.webContents.closeDevTools();
-
         }
-
-        // Truth is updated via the devtools-opened/closed
-        // listeners; rebuildTrayMenu re-runs there.
-
       },
     },
 
     { type: 'separator' },
 
+    // ── WhatsApp ──────────────────────────────────────────────────────────
     {
-      label: spotify.isAuthenticated()
-        ? 'Spotify: Connected ✓'
-        : 'Connect Spotify',
-      click: () => {
+      label:   `${_waDot()} WhatsApp`,
+      submenu: waSubmenu,
+    },
 
-        if (spotify.isAuthenticated()) {
-          return; // already connected — no-op
-        }
-
-        spotify.authenticate()
-          .then(() => {
-            // Rebuild so the label flips to "Connected ✓"
-            rebuildTrayMenu();
-          })
-          .catch((err) => {
-            console.error('[tray] Spotify auth failed:', err.message);
-          });
-
-      },
+    // ── Spotify ───────────────────────────────────────────────────────────
+    {
+      label:   `${_spotifyDot()} Spotify`,
+      submenu: spotifySubmenu,
     },
 
     { type: 'separator' },
 
     {
-
-      // Windows controls tray-icon visibility, not the app.
-      // Opening the right settings page is the closest thing to
-      // a programmatic "pin." Same pattern Discord/OBS use.
-
       label: 'Pin to Taskbar...',
       click: () => {
-
-        shell.openExternal('ms-settings:taskbar').catch(
-          (err) => {
-
-            console.warn(
-              '[shell] failed to open taskbar settings:',
-              err && err.message
-            );
-
-          }
-        );
-
+        shell.openExternal('ms-settings:taskbar').catch((err) => {
+          console.warn('[shell] failed to open taskbar settings:', err && err.message);
+        });
       },
     },
 
@@ -257,69 +233,55 @@ function rebuildTrayMenu() {
 
     {
       label: 'Quit',
-      click: () => {
-        app.quit();
-      },
+      click: () => { app.quit(); },
     },
 
   ]);
 
   tray.setContextMenu(contextMenu);
-
 }
+
+// ─── Wire WhatsApp status → tray rebuild + QR window ─────────────────────────
+
+whatsapp.onStatusChange((status) => {
+  rebuildTrayMenu();
+  if (status === 'connected') {
+    hideQr();
+  }
+});
+
+whatsapp.onQr((qrString) => {
+  showQr(qrString).catch((err) => {
+    console.error('[tray] Failed to show QR window:', err.message);
+  });
+});
+
+// ─── Tray creation ────────────────────────────────────────────────────────────
 
 function createTray() {
-
   tray = new Tray(TRAY_ICON_PATH);
-
   tray.setToolTip(AGENT_NAME);
-
   rebuildTrayMenu();
-
   tray.on('click', toggleWindow);
 
-  // Keep the DevTools checkbox honest if the user closes via X.
-
   const mainWindow = getMainWindow();
-
   if (mainWindow) {
-
-    mainWindow.webContents.on(
-      'devtools-opened',
-      () => {
-        devToolsOpen = true;
-        rebuildTrayMenu();
-      }
-    );
-
-    mainWindow.webContents.on(
-      'devtools-closed',
-      () => {
-        devToolsOpen = false;
-        rebuildTrayMenu();
-      }
-    );
-
+    mainWindow.webContents.on('devtools-opened', () => {
+      devToolsOpen = true;
+      rebuildTrayMenu();
+    });
+    mainWindow.webContents.on('devtools-closed', () => {
+      devToolsOpen = false;
+      rebuildTrayMenu();
+    });
   }
-
 }
 
-// Exposed so ipc.js can fire the initial wake-word state to the
-// renderer on 'persona:ready'. The renderer registers its toggle
-// listener during runtime construction (before ready fires), so by
-// the time we send this it'll be wired up.
+// ─── Exports for ipc.js ───────────────────────────────────────────────────────
 
-function isWakeWordEnabled() {
-  return wakeWordEnabled;
-}
-
-function isOpacityOnHoverEnabled() {
-  return opacityOnHoverEnabled;
-}
-
-function isTextInputEnabled() {
-  return textInputEnabled;
-}
+function isWakeWordEnabled()       { return wakeWordEnabled; }
+function isOpacityOnHoverEnabled() { return opacityOnHoverEnabled; }
+function isTextInputEnabled()      { return textInputEnabled; }
 
 module.exports = {
   createTray,

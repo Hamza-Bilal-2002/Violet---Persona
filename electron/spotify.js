@@ -441,11 +441,18 @@ function isAuthenticated() {
   return !!_tokens;
 }
 
+function disconnect() {
+  _tokens = null;
+  try { fs.unlinkSync(_tokensPath()); } catch { /* already gone */ }
+  console.log('[spotify] disconnected — tokens cleared');
+}
+
 module.exports = {
   loadTokens,
   authenticate,
   handleCallback,
   isAuthenticated,
+  disconnect,
   searchAndPlay,
   pause,
   resume,
