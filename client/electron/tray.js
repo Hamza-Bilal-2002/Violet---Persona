@@ -8,11 +8,53 @@ const {
   Tray,
   Menu,
   shell,
+  dialog,
 } = require('electron');
 
 const spotify = require('./spotify');
 const { showQr, hideQr } = require('./qrWindow');
 const whatsapp = require('./tools/whatsapp');
+
+// Backend api base. Hardcoded localhost to match the renderer's other
+// service URLs; revisit when the backend becomes remotely hosted.
+const API_BASE = 'http://localhost:8000';
+
+// Wipe Violet's long-term memory after an explicit confirm. The memory
+// lives server-side (server/api), so this is a simple authenticated-by-
+// locality HTTP call — no renderer round-trip needed.
+async function resetMemory() {
+  const { response } = await dialog.showMessageBox({
+    type: 'warning',
+    buttons: ['Cancel', 'Reset Memory'],
+    defaultId: 0,
+    cancelId: 0,
+    title: 'Reset Memory',
+    message: 'Erase everything Violet remembers about you?',
+    detail:
+      'This permanently deletes all long-term memories (facts, '
+      + 'preferences, people). The current conversation is unaffected. '
+      + 'This cannot be undone.',
+  });
+
+  if (response !== 1) return; // Cancel
+
+  try {
+    const res = await fetch(`${API_BASE}/memory/reset`, { method: 'POST' });
+    const data = await res.json();
+    dialog.showMessageBox({
+      type: 'info',
+      title: 'Memory Reset',
+      message: `Cleared ${data.removed ?? 0} memories.`,
+    });
+  } catch (err) {
+    dialog.showMessageBox({
+      type: 'error',
+      title: 'Reset Failed',
+      message: 'Could not reach the backend to reset memory.',
+      detail: (err && err.message) || String(err),
+    });
+  }
+}
 
 const {
   AGENT_NAME,
@@ -216,6 +258,21 @@ function rebuildTrayMenu() {
     {
       label:   `${_spotifyDot()} Spotify`,
       submenu: spotifySubmenu,
+    },
+
+    // ── Memory ────────────────────────────────────────────────────────────
+    {
+      label: 'Memory',
+      submenu: [
+        {
+          label: 'Reset Memory…',
+          click: () => {
+            resetMemory().catch((err) => {
+              console.error('[tray] reset memory error:', err && err.message);
+            });
+          },
+        },
+      ],
     },
 
     { type: 'separator' },

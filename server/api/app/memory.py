@@ -50,7 +50,10 @@ VALID_TYPES = ("user", "feedback", "project", "reference")
 
 # Two facts this similar are treated as the same memory — adding the
 # second just refreshes the first instead of creating a near-duplicate.
-DEDUP_THRESHOLD = 0.93
+# 0.90 catches re-phrasings ("Hamza is vegetarian" vs "Hamza is a
+# vegetarian") while staying clear of distinct-but-related facts
+# ("Hamza likes coffee" vs "Hamza likes tea" sit well below this).
+DEDUP_THRESHOLD = 0.90
 
 # Floor for a memory to count as "relevant" to a query. bge-small puts
 # genuinely related short facts comfortably above this; unrelated ones

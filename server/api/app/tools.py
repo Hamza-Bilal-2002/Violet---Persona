@@ -469,6 +469,122 @@ SEND_WHATSAPP = {
 }
 
 
+# ---- memory tools (executed server-side, not on the user's PC) --------------
+#
+# Unlike every tool above (which the backend forwards to the renderer),
+# these run inside the api against the long-term memory store. main.py
+# dispatches any tool whose name is in SERVER_SIDE_TOOLS locally and
+# never sends it to the client. Memory belongs to the assistant's brain,
+# so when the dialogue model moves local, memory stays local with it.
+
+REMEMBER = {
+    "type": "function",
+    "function": {
+        "name": "remember",
+        "description": (
+            "Save a durable fact to long-term memory so you recall it in "
+            "future conversations. Use this when the user explicitly asks "
+            "you to remember something, or states a lasting fact about "
+            "themselves, their preferences, people in their life, or "
+            "ongoing projects.\n\n"
+            "Do NOT use this for transient/command requests (volume, "
+            "opening apps, one-off messages) or small talk — only durable "
+            "facts worth recalling weeks later.\n\n"
+            "Examples:\n"
+            "  'remember I'm allergic to peanuts' → content='Allergic to "
+            "peanuts', type='user'\n"
+            "  'my sister's name is Sara' → content=\"Sister's name is "
+            "Sara\", type='reference'\n"
+            "  'always keep replies short' → content='Wants replies kept "
+            "short', type='feedback'"
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string",
+                    "description": (
+                        "The fact to store, phrased as a concise standalone "
+                        "statement (not 'remember that...', just the fact)."
+                    ),
+                },
+                "type": {
+                    "type": "string",
+                    "description": (
+                        "Category: 'user' (who they are/preferences), "
+                        "'feedback' (how you should behave), 'project' "
+                        "(ongoing work/goals), 'reference' (people, accounts, "
+                        "external things)."
+                    ),
+                    "enum": ["user", "feedback", "project", "reference"],
+                },
+            },
+            "required": ["content"],
+        },
+    },
+}
+
+
+FORGET = {
+    "type": "function",
+    "function": {
+        "name": "forget",
+        "description": (
+            "Remove a fact from long-term memory. Use this when the user "
+            "asks you to forget something specific. Describe what to forget "
+            "in natural language; the best-matching memory is removed. For "
+            "wiping ALL memory, tell the user to use the tray menu's "
+            "'Reset memory' — this tool only removes a single best match."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Description of the memory to forget, e.g. 'that I "
+                        "like peanuts' or 'my old address'."
+                    ),
+                },
+            },
+            "required": ["query"],
+        },
+    },
+}
+
+
+RECALL = {
+    "type": "function",
+    "function": {
+        "name": "recall",
+        "description": (
+            "Look up what you already know about a topic from long-term "
+            "memory. Use this when the user asks 'what do you know about "
+            "me', 'what do you remember about X', or when you need stored "
+            "context you don't already have in view. Returns matching "
+            "facts; weave them into your reply naturally."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "What to look up, e.g. 'my food preferences' or "
+                        "'everything about me'."
+                    ),
+                },
+            },
+            "required": ["query"],
+        },
+    },
+}
+
+
+# Tools the api executes itself instead of forwarding to the renderer.
+SERVER_SIDE_TOOLS = {"remember", "forget", "recall"}
+
+
 TOOL_DECLARATIONS = [
     OPEN_URL,
     OPEN_APP,
@@ -481,4 +597,7 @@ TOOL_DECLARATIONS = [
     SPOTIFY_CONTROL,
     MEDIA_CONTROL,
     SEND_WHATSAPP,
+    REMEMBER,
+    FORGET,
+    RECALL,
 ]

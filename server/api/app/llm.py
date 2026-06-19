@@ -390,5 +390,79 @@ class LLMClient:
             seed_history=seed_history,
         )
 
+    def extract_memories(
+        self,
+        user_text: str,
+        assistant_text: str,
+        user_name: str = "the user",
+    ) -> list[dict]:
+        """Distill durable facts from one conversation turn.
+
+        Returns a list of {content, type, importance}. Runs through the
+        SAME configured client/model as the dialogue, so when the model
+        moves local this extraction moves local too — the cloud provider
+        never becomes the keeper of long-term memory. Best-effort: any
+        failure returns [] rather than raising into the turn.
+        """
+        if not self._configured:
+            return []
+
+        prompt = (
+            "You extract DURABLE facts worth remembering long-term from a "
+            "single conversation turn. Return STRICT JSON: "
+            '{"memories": [{"content": str, "type": str, "importance": '
+            "number}]}.\n\n"
+            "Types: 'user' (who they are, traits, preferences), 'feedback' "
+            "(how the assistant should behave), 'project' (ongoing work, "
+            "goals, constraints), 'reference' (people, accounts, external "
+            "resources).\n"
+            "importance: 0.0-1.0 (0.8+ only for clearly significant facts).\n\n"
+            "Extract ONLY lasting facts that the USER newly states or asks "
+            "to be remembered. IGNORE facts the assistant merely restates, "
+            "recalls, or confirms — those are already known. Return an EMPTY "
+            "list for: commands (volume, open app, send message), questions, "
+            "small talk, transient state, or anything not useful weeks from "
+            "now.\n"
+            f"Phrase each fact as a concise standalone statement in third "
+            f"person, always referring to the user as '{user_name}' (never "
+            f"'the user' or 'User') so facts stay consistently worded. Never "
+            f"invent facts not present in the text."
+        )
+
+        content = (
+            f"User said: {user_text}\n"
+            f"Assistant replied: {assistant_text}"
+        )
+
+        try:
+            resp = self._openai.chat.completions.create(
+                model=self._model,
+                messages=[
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": content},
+                ],
+                response_format={"type": "json_object"},
+                temperature=0,
+            )
+            raw = resp.choices[0].message.content or "{}"
+            data = json.loads(raw)
+            items = data.get("memories", []) if isinstance(data, dict) else []
+            out: list[dict] = []
+            for it in items:
+                if not isinstance(it, dict):
+                    continue
+                c = (it.get("content") or "").strip()
+                if not c:
+                    continue
+                out.append({
+                    "content": c,
+                    "type": it.get("type", "user"),
+                    "importance": it.get("importance", 0.5),
+                })
+            return out
+        except Exception as e:
+            logger.warning(f"memory extraction failed: {e}")
+            return []
+
 
 client = LLMClient()

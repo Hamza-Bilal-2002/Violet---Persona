@@ -52,6 +52,7 @@ from .llm import client as llm_client
 from .memory import memory as memory_store
 from .protocol import parse_reply
 from .store import store as message_store
+from .tools import SERVER_SIDE_TOOLS
 
 
 # How many prior messages to replay from the SQLite store when a
@@ -301,6 +302,11 @@ async def chat_ws(websocket: WebSocket):
             except Exception:
                 logger.exception("failed to persist turn — continuing")
 
+            # Phase 5: auto-extract durable facts in the background using
+            # the clean spoken text (tags stripped). Fire-and-forget so it
+            # never delays the next turn.
+            asyncio.create_task(_extract_and_store(user_text, parsed.text))
+
             session.trim_history(MAX_HISTORY_ENTRIES)
 
     except WebSocketDisconnect:
@@ -351,6 +357,15 @@ async def _run_dialogue_turn(
         results: list[tuple] = []
 
         for fc in response["function_calls"]:
+
+            # Memory tools run inside the api against the long-term store
+            # — never forwarded to the renderer. Everything else is a PC
+            # action the client executes.
+            if fc["name"] in SERVER_SIDE_TOOLS:
+                payload = await _execute_memory_tool(fc["name"], fc["args"])
+                results.append((fc["name"], payload))
+                continue
+
             tool_id = str(uuid.uuid4())
 
             await websocket.send_text(json.dumps({
@@ -369,6 +384,84 @@ async def _run_dialogue_turn(
         f"hit MAX_TOOL_ROUNDS ({MAX_TOOL_ROUNDS}); returning whatever text we have"
     )
     return response["text"], used_tools
+
+
+async def _execute_memory_tool(name: str, args: dict) -> dict:
+    """Run a server-side memory tool against the long-term store and
+    return a payload shaped like _await_tool_result ({result}/{error})
+    so it feeds back into the model identically to client-side tools."""
+    args = args or {}
+    try:
+        if name == "remember":
+            row = await memory_store.add(
+                args.get("content", ""),
+                mem_type=args.get("type", "user"),
+                importance=float(args.get("importance", 0.6)),
+                source="tool",
+            )
+            if row is None:
+                return {"error": "nothing to remember (empty content)"}
+            return {"result": {
+                "saved": True,
+                "content": row["content"],
+                "type": row["type"],
+            }}
+
+        if name == "recall":
+            hits = await memory_store.search(
+                args.get("query", ""), k=MEMORY_TOP_K
+            )
+            return {"result": {
+                "memories": [
+                    {"type": m["type"], "content": m["content"]}
+                    for m in hits
+                ],
+            }}
+
+        if name == "forget":
+            hits = await memory_store.search(
+                args.get("query", ""), k=1, min_score=0.4
+            )
+            if not hits:
+                return {"result": {
+                    "forgotten": False,
+                    "reason": "no matching memory found",
+                }}
+            top = hits[0]
+            memory_store.delete(top["id"])
+            return {"result": {"forgotten": True, "content": top["content"]}}
+
+        return {"error": f"unknown memory tool: {name}"}
+
+    except Exception as e:
+        logger.exception(f"memory tool {name} failed")
+        return {"error": str(e)}
+
+
+async def _extract_and_store(user_text: str, assistant_text: str) -> None:
+    """Background task: distill durable facts from a turn and store them.
+    Fully best-effort — runs after the reply is already sent, so a slow
+    or failed extraction never affects the user's experience."""
+    try:
+        # extract_memories is a sync LLM call; offload so we don't block
+        # the event loop.
+        facts = await asyncio.to_thread(
+            llm_client.extract_memories,
+            user_text,
+            assistant_text,
+            settings.user_name,
+        )
+        for f in facts:
+            await memory_store.add(
+                f["content"],
+                mem_type=f.get("type", "user"),
+                importance=float(f.get("importance", 0.5)),
+                source="auto",
+            )
+        if facts:
+            logger.info(f"memory: auto-extracted {len(facts)} fact(s)")
+    except Exception:
+        logger.exception("background memory extraction failed")
 
 
 async def _await_tool_result(websocket: WebSocket, tool_id: str) -> dict:
