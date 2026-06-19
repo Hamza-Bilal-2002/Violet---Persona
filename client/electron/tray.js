@@ -77,6 +77,12 @@ let wakeWordEnabled       = true;
 let opacityOnHoverEnabled = false;
 let textInputEnabled      = false;
 
+// Personalities — roster + active id come from the backend via the
+// renderer (IPC). Until the renderer connects, the submenu shows a
+// placeholder.
+let personalityRoster   = [];
+let activePersonalityId = null;
+
 // ─── Service status labels ────────────────────────────────────────────────────
 
 function _waDot() {
@@ -88,6 +94,36 @@ function _waDot() {
 
 function _spotifyDot() {
   return spotify.isAuthenticated() ? '🟢' : '🔴';
+}
+
+function _personalitySubmenu() {
+  if (!personalityRoster.length) {
+    return [{ label: '(start backend to load)', enabled: false }];
+  }
+  return personalityRoster.map((p) => ({
+    label:   p.name,
+    type:    'radio',
+    checked: p.id === activePersonalityId,
+    click:   () => {
+      // The active session lives on the renderer's WS connection, so the
+      // switch is relayed there rather than issued from the main process.
+      const w = getMainWindow();
+      if (w) w.webContents.send('persona:set-personality', p.id);
+    },
+  }));
+}
+
+// Called from ipc.js when the renderer relays backend personality frames.
+
+function setPersonalityRoster(msg) {
+  personalityRoster = (msg && msg.personalities) || [];
+  if (msg && msg.active) activePersonalityId = msg.active;
+  rebuildTrayMenu();
+}
+
+function setActivePersonality(id) {
+  activePersonalityId = id;
+  rebuildTrayMenu();
 }
 
 // ─── Tray menu build ──────────────────────────────────────────────────────────
@@ -281,6 +317,12 @@ function rebuildTrayMenu() {
       ],
     },
 
+    // ── Personality ───────────────────────────────────────────────────────
+    {
+      label:   'Personality',
+      submenu: _personalitySubmenu(),
+    },
+
     { type: 'separator' },
 
     {
@@ -351,4 +393,6 @@ module.exports = {
   isWakeWordEnabled,
   isOpacityOnHoverEnabled,
   isTextInputEnabled,
+  setActivePersonality,
+  setPersonalityRoster,
 };

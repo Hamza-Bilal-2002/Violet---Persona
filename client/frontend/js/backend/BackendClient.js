@@ -44,6 +44,8 @@ export class BackendClient {
     dialogueManager,
     onStatusChange,
     onConfirmationRequired,
+    onPersonality,
+    onPersonalities,
   }) {
 
     this.url =
@@ -55,6 +57,16 @@ export class BackendClient {
     this.onStatusChange =
       onStatusChange ||
       (() => {});
+
+    // Personality frames from the backend. onPersonality fires when the
+    // active personality changes (carries voice + default_emotion);
+    // onPersonalities fires with the full roster + active id (for the
+    // tray). Both optional.
+    this.onPersonality =
+      onPersonality || null;
+
+    this.onPersonalities =
+      onPersonalities || null;
 
     // Called when a confirmation-required tool is intercepted.
     // Signature: ({ name, args, resolve, reject }) => void
@@ -297,6 +309,28 @@ export class BackendClient {
 
   }
 
+  // Ask the backend to switch the active personality. Sent as a control
+  // frame so it bypasses the dialogue path; the backend rebuilds the
+  // session prompt and replies with a `personality` frame + a spoken
+  // confirmation. No-op if the socket isn't open.
+  setPersonality(id) {
+
+    if (
+      this.ws &&
+      this.ws.readyState === WebSocket.OPEN
+    ) {
+
+      this.ws.send(
+        JSON.stringify({
+          type: 'set_personality',
+          id,
+        })
+      );
+
+    }
+
+  }
+
   send(text) {
 
     const trimmed =
@@ -397,6 +431,28 @@ export class BackendClient {
       // WS read loop keep flowing while the tool runs.
 
       this._handleToolCall(msg);
+
+      return;
+
+    }
+
+    if (msg.type === 'personality') {
+
+      // Active personality changed — carries voice + default emotion.
+      if (this.onPersonality) {
+        this.onPersonality(msg);
+      }
+
+      return;
+
+    }
+
+    if (msg.type === 'personalities') {
+
+      // Full roster + active id (sent on connect and on switch).
+      if (this.onPersonalities) {
+        this.onPersonalities(msg);
+      }
 
       return;
 

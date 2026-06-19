@@ -7,11 +7,28 @@
 const { ipcMain } = require('electron');
 
 const { getMainWindow } = require('./window');
-const { isWakeWordEnabled, isOpacityOnHoverEnabled, isTextInputEnabled } = require('./tray');
+const {
+  isWakeWordEnabled,
+  isOpacityOnHoverEnabled,
+  isTextInputEnabled,
+  setActivePersonality,
+  setPersonalityRoster,
+} = require('./tray');
 const tools = require('./tools');
 const { loadSettings, saveSettings } = require('./userSettings');
 
 function registerIpcHandlers() {
+
+  // Personalities: the renderer relays backend personality frames here
+  // so the tray's Personality submenu reflects the roster + active one.
+
+  ipcMain.on('persona:personality-active', (_event, id) => {
+    setActivePersonality(id);
+  });
+
+  ipcMain.on('persona:personalities-roster', (_event, msg) => {
+    setPersonalityRoster(msg);
+  });
 
   // Renderer asks the shell to hide its window.
 

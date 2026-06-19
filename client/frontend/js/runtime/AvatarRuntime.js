@@ -680,7 +680,49 @@ export class AvatarRuntime {
 
         },
 
+        // Active personality changed: switch the TTS voice so she sounds
+        // like the new personality, and tell the Electron shell so the
+        // tray's radio marker stays in sync.
+        onPersonality: (p) => {
+
+          if (this.ttsClient && typeof this.ttsClient.setVoice === 'function') {
+            this.ttsClient.setVoice(p.voice);
+          }
+
+          if (
+            window.personaShell &&
+            typeof window.personaShell.notifyPersonality === 'function'
+          ) {
+            window.personaShell.notifyPersonality(p.id);
+          }
+
+        },
+
+        // Full roster + active id (sent on connect). Forward to the
+        // shell so the tray can build its Personality submenu.
+        onPersonalities: (msg) => {
+
+          if (
+            window.personaShell &&
+            typeof window.personaShell.notifyPersonalities === 'function'
+          ) {
+            window.personaShell.notifyPersonalities(msg);
+          }
+
+        },
+
       });
+
+    // Tray → renderer: the user picked a personality from the tray menu.
+    // Relay it to the backend over the WS as a switch request.
+    if (
+      window.personaShell &&
+      typeof window.personaShell.onSetPersonality === 'function'
+    ) {
+      window.personaShell.onSetPersonality((id) => {
+        this.backendClient.setPersonality(id);
+      });
+    }
 
     this.backendClient.connect();
 

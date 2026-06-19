@@ -16,20 +16,27 @@ RUN apt-get update \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Pre-download the voice model into the image so the first
-# /synthesize call doesn't stall pulling a ~60MB ONNX from
-# huggingface. Voice choice — en_US-hfc_female-medium — is a
-# slightly younger-sounding female US-English neural voice. To
-# swap, change BOTH the ENV below AND the two URL paths to match
-# the rhasspy/piper-voices repo layout (en/<locale>/<voice>/<quality>/...)
-# AND the VOICE_NAME constant in app/main.py.
+# Pre-download the voice models into the image so the first /synthesize
+# call for a voice doesn't stall pulling a ~60MB ONNX from huggingface.
+# One voice per personality (see server/config/personalities/*.json):
+#   en_US-hfc_female-medium  angry_gf (default)
+#   en_US-amy-medium         cheerful
+#   en_US-lessac-medium      calm
+#   en_GB-jenny_dioco-medium tsundere
+# To add a voice: add a fetch line here (rhasspy/piper-voices layout
+# en/<locale>/<voice>/<quality>/...) and reference it in a personality.
 
-ENV VOICE_NAME=en_US-hfc_female-medium
+ENV PIPER_BASE=https://huggingface.co/rhasspy/piper-voices/resolve/main/en
 RUN mkdir -p /models && \
-    wget -O /models/${VOICE_NAME}.onnx \
-      https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/hfc_female/medium/en_US-hfc_female-medium.onnx && \
-    wget -O /models/${VOICE_NAME}.onnx.json \
-      https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/hfc_female/medium/en_US-hfc_female-medium.onnx.json
+    for spec in \
+      "en_US-hfc_female-medium:en_US/hfc_female/medium" \
+      "en_US-amy-medium:en_US/amy/medium" \
+      "en_US-lessac-medium:en_US/lessac/medium" \
+      "en_GB-jenny_dioco-medium:en_GB/jenny_dioco/medium" ; do \
+        name="${spec%%:*}" ; path="${spec##*:}" ; \
+        wget -O "/models/${name}.onnx"      "${PIPER_BASE}/${path}/${name}.onnx" && \
+        wget -O "/models/${name}.onnx.json" "${PIPER_BASE}/${path}/${name}.onnx.json" ; \
+    done
 
 COPY . .
 

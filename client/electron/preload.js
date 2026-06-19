@@ -215,5 +215,31 @@ contextBridge.exposeInMainWorld(
 
     },
 
+    // ── Personalities ────────────────────────────────────────────
+    //
+    // The renderer relays personality frames from the backend up to the
+    // shell so the tray's Personality submenu reflects the active one,
+    // and subscribes to tray clicks so a menu pick becomes a WS switch.
+
+    // Renderer -> shell: the active personality changed.
+    notifyPersonality: (id) =>
+      ipcRenderer.send('persona:personality-active', id),
+
+    // Renderer -> shell: the full personality roster (sent on connect).
+    notifyPersonalities: (msg) =>
+      ipcRenderer.send('persona:personalities-roster', msg),
+
+    // Shell -> renderer: the user picked a personality from the tray.
+    onSetPersonality: (callback) => {
+
+      ipcRenderer.on(
+        'persona:set-personality',
+        (_event, id) => {
+          callback(id);
+        }
+      );
+
+    },
+
   }
 );

@@ -35,6 +35,21 @@ export class TtsClient {
     this.url =
       url;
 
+    // Active voice name (e.g. 'en_US-amy-medium'). Set by setVoice()
+    // when the personality changes; null lets the tts service use its
+    // default voice.
+    this.voice =
+      null;
+
+  }
+
+  // Switch the voice used for subsequent synthesize() calls. Called
+  // when a personality frame arrives with that personality's voice.
+  setVoice(voice) {
+
+    this.voice =
+      voice || null;
+
   }
 
   async synthesize(text) {
@@ -65,9 +80,11 @@ export class TtsClient {
                 'application/json',
             },
             body:
-              JSON.stringify({
-                text: trimmed,
-              }),
+              JSON.stringify(
+                this.voice
+                  ? { text: trimmed, voice: this.voice }
+                  : { text: trimmed }
+              ),
           }
         );
 

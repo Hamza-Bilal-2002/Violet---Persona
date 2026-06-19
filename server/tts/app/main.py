@@ -28,10 +28,12 @@ from pydantic import BaseModel
 
 # ---- config -----------------------------------------------------------------
 
-VOICE_NAME = "en_US-hfc_female-medium"
+# Default voice when none is requested or the requested one isn't
+# installed. Personalities pick a voice per their config (see
+# server/config/personalities/*.json); whichever voices they name must
+# be baked into the image (see the Dockerfile).
+DEFAULT_VOICE = "en_US-hfc_female-medium"
 VOICE_DIR = Path("/models")
-VOICE_MODEL_PATH = VOICE_DIR / f"{VOICE_NAME}.onnx"
-VOICE_CONFIG_PATH = VOICE_DIR / f"{VOICE_NAME}.onnx.json"
 
 
 # ---- app --------------------------------------------------------------------
@@ -47,33 +49,42 @@ app.add_middleware(
 )
 
 
-# ---- model (lazy) -----------------------------------------------------------
+# ---- models (lazy, per voice) -----------------------------------------------
 
-_voice = None
+# Loaded PiperVoice instances keyed by voice name. Each voice is loaded
+# once on first use and cached — switching personalities mid-session
+# costs one load the first time that voice is heard, nothing after.
+_voices: dict = {}
 
 
-def get_voice():
-    """Lazy-load the PiperVoice singleton on first synth."""
+def _installed_voices() -> list[str]:
+    return sorted(p.stem for p in VOICE_DIR.glob("*.onnx"))
 
-    global _voice
 
-    if _voice is None:
+def get_voice(name: str | None):
+    """Lazy-load and cache the PiperVoice for `name`, falling back to
+    DEFAULT_VOICE when the requested voice isn't installed."""
 
+    name = (name or DEFAULT_VOICE).strip()
+    model_path = VOICE_DIR / f"{name}.onnx"
+
+    if not model_path.exists():
+        if name != DEFAULT_VOICE:
+            logger.warning(f"voice '{name}' not installed — using default")
+        name = DEFAULT_VOICE
+        model_path = VOICE_DIR / f"{name}.onnx"
+
+    if name not in _voices:
         from piper import PiperVoice
 
-        logger.info(
-            f"loading piper voice: {VOICE_NAME} "
-            f"(model={VOICE_MODEL_PATH}, config={VOICE_CONFIG_PATH})"
+        logger.info(f"loading piper voice: {name}")
+        _voices[name] = PiperVoice.load(
+            str(model_path),
+            config_path=f"{model_path}.json",
         )
+        logger.info(f"piper voice ready: {name}")
 
-        _voice = PiperVoice.load(
-            str(VOICE_MODEL_PATH),
-            config_path=str(VOICE_CONFIG_PATH),
-        )
-
-        logger.info("piper voice ready")
-
-    return _voice
+    return _voices[name]
 
 
 # ---- schemas ----------------------------------------------------------------
@@ -81,6 +92,9 @@ def get_voice():
 
 class SynthesizeRequest(BaseModel):
     text: str
+    # Optional voice name (e.g. "en_US-amy-medium"). Falls back to the
+    # default when omitted or unknown.
+    voice: str | None = None
 
 
 # ---- routes -----------------------------------------------------------------
@@ -91,7 +105,8 @@ async def root():
     return {
         "name": "persona-tts",
         "version": "0.1.0",
-        "voice": VOICE_NAME,
+        "default_voice": DEFAULT_VOICE,
+        "voices": _installed_voices(),
     }
 
 
@@ -99,7 +114,8 @@ async def root():
 async def health():
     return {
         "status": "ok",
-        "voice": VOICE_NAME,
+        "default_voice": DEFAULT_VOICE,
+        "voices": _installed_voices(),
     }
 
 
@@ -119,7 +135,7 @@ async def synthesize(req: SynthesizeRequest):
         logger.warning("synthesize: empty text")
         return Response(status_code=400)
 
-    voice = get_voice()
+    voice = get_voice(req.voice)
 
     # PiperVoice.synthesize writes a complete RIFF/WAV file into a
     # wave.Wave_write opened on a file-like object. Buffering into
