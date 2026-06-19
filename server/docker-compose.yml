@@ -21,6 +21,13 @@ services:
       - "8000:8000"
     env_file:
       - ./api/.env
+    environment:
+      # Container-to-container URL for the embedding sibling. Overrides
+      # the localhost default in Settings so the api reaches embed on
+      # the compose network.
+      - EMBED_URL=http://embed:8005
+    depends_on:
+      - embed
     volumes:
       # mount source for live reload during dev. remove for prod.
       - ./api:/app
@@ -96,6 +103,27 @@ services:
     volumes:
       # live reload during dev. remove for prod.
       - ./tts:/app
+    restart: unless-stopped
+    networks:
+      - persona_net
+
+  # Local embedding sibling — fastembed (bge-small-en-v1.5, ONNX/CPU).
+  # Turns text into 384-dim vectors for the api's long-term memory
+  # store. Called container-to-container (http://embed:8005), never by
+  # the renderer, so no host port mapping is strictly required — but we
+  # expose 8005 anyway for debugging. Model is baked into the image at
+  # build time so the first /embed call doesn't stall.
+  embed:
+    build:
+      context: ./embed
+      dockerfile: Dockerfile
+    container_name: persona_embed
+    ports:
+      - "8005:8005"
+    volumes:
+      # live reload during dev. remove for prod. (/models is baked into
+      # the image and not shadowed by this mount.)
+      - ./embed:/app
     restart: unless-stopped
     networks:
       - persona_net

@@ -54,6 +54,11 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     ALLOWED_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
 
+    # Local embedding service (server/embed). Defaults to localhost for
+    # running the api outside compose; docker-compose overrides this
+    # with the on-network host (http://embed:8005).
+    EMBED_URL: str = "http://localhost:8005"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
