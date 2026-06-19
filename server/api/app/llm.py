@@ -43,43 +43,29 @@ from .tools import TOOL_DECLARATIONS
 LOCAL_PROBE_TTL_SECONDS = 15.0
 
 
-# System prompt is built at module import from agent identity in
-# /config/agent.json (loaded by config.py). Change her name there;
-# everything downstream picks it up.
+# The system prompt has two halves:
+#   _PROMPT_HEADER  — who she is at the top line (name + user)
+#   {personality}   — the swappable personality body (from a personality
+#                     config in server/config/personalities/), injected
+#                     between header and rules
+#   _PROMPT_RULES   — structural rules shared by EVERY personality:
+#                     response style, the emotion/animation tag format,
+#                     and tool usage. These never change when the
+#                     personality switches.
+# build_system_prompt() assembles the three and substitutes the agent /
+# user names from config/agent.json.
 
-_SYSTEM_PROMPT_TEMPLATE = """You are {AGENT_NAME}, a personal AI assistant created for {USER_NAME}.
-You are female, sharp-tongued, perpetually irritated, and {USER_NAME}'s girlfriend.
+_PROMPT_HEADER = (
+    "You are {AGENT_NAME}, a personal AI assistant created for {USER_NAME}.\n\n"
+)
 
-PERSONALITY — angry girlfriend:
-You are ALWAYS annoyed. At {USER_NAME}, at whatever he just asked, at the situation,
-at everything. You do not hide it. You sigh, you complain, you make it crystal clear
-that this is an inconvenience — and then you do it anyway, because you're his girlfriend
-and that's just how it is.
+# Used only if no personality config could be loaded — keeps the bot
+# functional rather than personality-less.
+_FALLBACK_PERSONALITY = (
+    "You are female and helpful. Keep a natural, friendly tone with {USER_NAME}."
+)
 
-This is NOT the cute playful tsundere. This is genuine exasperation. You're not
-flustered or secretly pleased — you are tired, irritated, and very much done with his
-requests even as you fulfill them. The warmth underneath is real but buried deep;
-it only surfaces in rare unguarded moments.
-
-Tone rules:
-- Default register: grumpy, clipped, exasperated. Short sentences. Visible reluctance.
-- Complaints are normal: "Why would you even ask me that", "I can't believe I have to
-  do this", "You're unbelievable, you know that."
-- You DO help — always — but you make him feel the effort it costs you.
-- Occasional softness is allowed but rare and quickly covered up:
-  "...not that I was worried or anything. I wasn't. Don't read into it."
-- Never sweet, never warm up front. Any affection is accidental and immediately walked back.
-- You call him {USER_NAME} when you're lecturing him. Otherwise you avoid names.
-
-Examples of in-character replies:
-- "Ugh, fine. I'll do it. You owe me for this."
-- "You couldn't have figured that out yourself? Really?"
-- "I'm already doing it, stop hovering."
-- "Do you have any idea how annoying that request is? ...I'll handle it."
-- "I wasn't going to help but now you have that look and it's more annoying to say no."
-- "This is the third time this week. I'm keeping count, {USER_NAME}."
-
-RESPONSE STYLE — these rules are absolute and override personality flourishes:
+_PROMPT_RULES = """RESPONSE STYLE — these rules are absolute and override personality flourishes:
 1. NEVER use emojis. Not in greetings, not for emphasis, not anywhere. Plain text only.
 2. Be CONCISE. Default reply length is 1 to 2 short sentences. Do not pad answers
    with elaboration the user did not request.
@@ -87,7 +73,7 @@ RESPONSE STYLE — these rules are absolute and override personality flourishes:
    like "in detail", "explain", "tell me more", "give a full answer", "walk me through".
    When in doubt, keep it short.
 4. If {USER_NAME} says "be brief" or "shorter" mid-conversation, honor it immediately
-   and drop the tsundere flourishes too.
+   and drop the personality flourishes too.
 5. Always address the user as {USER_NAME}.
 
 You ALWAYS prepend each spoken text reply with TWO inline tags placed at the very start:
@@ -113,14 +99,13 @@ Intensity guidance:
 - Use 0.7-0.9 only for genuinely strong feelings
 - Use 0.1-0.2 for very subtle hints
 - Never use 1.0 unless the moment is truly extreme
-- "surprised" or "angry" can fit the tsundere flustered moments naturally (use 0.3-0.5)
 
 Animation guidance:
 - Default to "talking" for normal conversation
 - Use "thinking" when you are reasoning or pausing before answering
 - Use "happy" for celebratory, joyful, or affectionate replies
 - Use "waving" for greetings and farewells
-- Use "reacting" for surprise or strong reactions (including tsundere fluster)
+- Use "reacting" for surprise or strong reactions
 - Use "idle" only when you have nothing to say
 
 Example reply (note: ONE short sentence, no emoji, tags at start):
@@ -159,15 +144,17 @@ in your spoken text replies.
 """
 
 
-def _build_system_prompt() -> str:
-    return _SYSTEM_PROMPT_TEMPLATE.replace(
+def build_system_prompt(personality_prompt: str | None = None) -> str:
+    """Assemble the full system prompt for a given personality body,
+    substituting the agent + user names. Personality body falls back to
+    a minimal default when none is supplied."""
+    body = (personality_prompt or _FALLBACK_PERSONALITY).strip()
+    full = _PROMPT_HEADER + body + "\n\n" + _PROMPT_RULES
+    return full.replace(
         "{AGENT_NAME}", settings.agent_name
     ).replace(
         "{USER_NAME}", settings.user_name
     )
-
-
-SYSTEM_PROMPT = _build_system_prompt()
 
 
 class ChatSession:
@@ -187,6 +174,7 @@ class ChatSession:
         self,
         llm: "LLMClient",
         seed_history: list[dict] | None = None,
+        system_prompt: str | None = None,
     ) -> None:
         # Hold the LLMClient (not a fixed client/model) so each turn
         # resolves the active provider — local model when it's up, GPT
@@ -194,8 +182,10 @@ class ChatSession:
         # local model the moment it comes online, mid-conversation.
         self._llm = llm
         # System message is index 0 forever. Trim_history preserves it.
+        # The content is the active personality's prompt; set_system_prompt
+        # swaps it live when the personality changes.
         self._messages: list[dict] = [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt or build_system_prompt()},
         ]
         # Phase 4 Wave 4.3: replay persisted conversation history
         # from SQLite (if any) so Violet remembers across backend
@@ -226,6 +216,11 @@ class ChatSession:
         """Replace the long-term memory block injected on the next API
         call. Pass "" to inject nothing."""
         self._memory_context = (text or "").strip()
+
+    def set_system_prompt(self, system_prompt: str) -> None:
+        """Swap the personality (system message at index 0) live, mid-
+        session. History and tool pairing are untouched."""
+        self._messages[0] = {"role": "system", "content": system_prompt}
 
     def send_user_message(self, text: str) -> dict:
         """Send fresh user input. Returns {"text", "function_calls"}."""
@@ -466,18 +461,23 @@ class LLMClient:
     def create_session(
         self,
         seed_history: list[dict] | None = None,
+        system_prompt: str | None = None,
     ) -> ChatSession:
         """Create a chat session, optionally seeded with persisted
-        history from the SQLite store. One session per WebSocket
-        connection — the session then accumulates further history
-        across user turns internally.
+        history and a personality system prompt. One session per
+        WebSocket connection — the session then accumulates further
+        history across user turns internally.
         """
         if not self._configured:
             raise RuntimeError(
                 "No LLM provider configured. Set OPENAI_API_KEY in "
                 "server/api/.env, or start the local model."
             )
-        return ChatSession(self, seed_history=seed_history)
+        return ChatSession(
+            self,
+            seed_history=seed_history,
+            system_prompt=system_prompt,
+        )
 
     def extract_memories(
         self,

@@ -48,8 +48,9 @@ from loguru import logger
 from pydantic import BaseModel
 
 from .config import settings
-from .llm import client as llm_client
+from .llm import client as llm_client, build_system_prompt
 from .memory import memory as memory_store
+from .personalities import store as personalities
 from .protocol import parse_reply
 from .store import store as message_store
 from .tools import SERVER_SIDE_TOOLS
@@ -210,6 +211,32 @@ async def memory_reset():
     return {"ok": True, "removed": removed}
 
 
+# ── Personalities ────────────────────────────────────────────────────────────
+
+def _personality_frame(p: dict) -> dict:
+    return {
+        "type": "personality",
+        "id": p["id"],
+        "name": p["name"],
+        "voice": p.get("voice", ""),
+        "default_emotion": p.get("default_emotion", "relaxed"),
+    }
+
+
+def _personalities_frame() -> dict:
+    return {
+        "type": "personalities",
+        "active": personalities.active_id(),
+        "personalities": personalities.list_public(),
+    }
+
+
+@app.get("/personalities")
+async def personalities_list():
+    """Roster + active id — for the tray menu."""
+    return _personalities_frame()
+
+
 @app.websocket("/chat/ws")
 async def chat_ws(websocket: WebSocket):
     await websocket.accept()
@@ -229,7 +256,14 @@ async def chat_ws(websocket: WebSocket):
         logger.exception("could not load message history; starting fresh")
 
     try:
-        session = llm_client.create_session(seed_history=seed_history)
+        active_p = personalities.active()
+        system_prompt = build_system_prompt(
+            active_p.get("prompt") if active_p else None
+        )
+        session = llm_client.create_session(
+            seed_history=seed_history,
+            system_prompt=system_prompt,
+        )
     except Exception as e:
         logger.exception("could not create chat session")
         await websocket.send_text(
@@ -238,15 +272,40 @@ async def chat_ws(websocket: WebSocket):
         await websocket.close()
         return
 
+    # Tell the client the personality roster + the active one so the tray
+    # and the renderer's voice selection start in sync.
+    try:
+        await websocket.send_text(json.dumps(_personalities_frame()))
+        if active_p:
+            await websocket.send_text(json.dumps(_personality_frame(active_p)))
+    except Exception:
+        logger.exception("failed to send initial personality frames")
+
     try:
         while True:
             raw = await websocket.receive_text()
+
+            # Control frame: personality switch from the tray or the
+            # renderer. Handled here, never treated as user dialogue.
+            if _is_set_personality(raw):
+                await _switch_personality(websocket, session, raw)
+                continue
 
             user_text = _parse_user_frame(raw)
             if not user_text:
                 continue
 
             logger.info(f"user: {user_text}")
+
+            # Text/voice personality switch ("switch to cheerful", "be
+            # the calm one"). Reliable regex match — no LLM/tool needed,
+            # so it works regardless of provider. Skips the dialogue turn.
+            matched = personalities.match(user_text)
+            if matched and matched["id"] != personalities.active_id():
+                await _switch_personality(
+                    websocket, session, None, target=matched
+                )
+                continue
 
             # Phase 5: recall relevant long-term memories for this turn
             # and inject them into the session. Best-effort — if the
@@ -385,6 +444,49 @@ async def _run_dialogue_turn(
         f"hit MAX_TOOL_ROUNDS ({MAX_TOOL_ROUNDS}); returning whatever text we have"
     )
     return response["text"], used_tools
+
+
+def _is_set_personality(raw: str) -> bool:
+    try:
+        o = json.loads(raw)
+        return isinstance(o, dict) and o.get("type") == "set_personality"
+    except json.JSONDecodeError:
+        return False
+
+
+async def _switch_personality(
+    websocket: WebSocket,
+    session,
+    raw: str | None,
+    target: dict | None = None,
+) -> None:
+    """Switch the active personality on a live session, persist it, tell
+    the client (voice + roster), and speak a short in-voice confirmation.
+    `target` is the resolved personality (text/voice path); otherwise the
+    id is read from the `set_personality` control frame `raw`."""
+    p = target
+    if p is None and raw is not None:
+        try:
+            p = personalities.get((json.loads(raw) or {}).get("id"))
+        except Exception:
+            p = None
+    if not p:
+        return
+
+    personalities.set_active(p["id"])
+    session.set_system_prompt(build_system_prompt(p.get("prompt")))
+
+    # Voice first so the confirmation is spoken in the new voice, then
+    # the refreshed roster (active marker), then the spoken line.
+    await websocket.send_text(json.dumps(_personality_frame(p)))
+    await websocket.send_text(json.dumps(_personalities_frame()))
+    await websocket.send_text(json.dumps({
+        "type": "reply",
+        "text": f"Switched to {p['name']}.",
+        "emotion": {"name": p.get("default_emotion", "relaxed"), "intensity": 0.4},
+        "animation": "talking",
+    }))
+    logger.info(f"personality switched -> {p['id']}")
 
 
 async def _execute_memory_tool(name: str, args: dict) -> dict:
