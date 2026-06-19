@@ -38,6 +38,9 @@ from '../ui/voiceIndicator.js';
 import { mountModeNotifier }
 from '../ui/modeNotifier.js';
 
+import { mountChatBox }
+from '../ui/chatBox.js';
+
 import { VoiceFlow }
 from '../voice/VoiceFlow.js';
 
@@ -542,6 +545,32 @@ export class AvatarRuntime {
     this.modeNotifier =
       mountModeNotifier();
 
+    // Text-mode chatbox. Hidden until text mode turns on. Its callbacks
+    // route to the backend client (constructed just below): user sends go
+    // out as normal messages, settings saves persist scene/rules, and the
+    // close button turns text mode off.
+
+    this.chatBox =
+      mountChatBox({
+
+        onSend: (text) => {
+          this.dialogueManager.resetIdle();
+          this.backendClient.send(text);
+        },
+
+        onSaveSettings: ({ scene, rules }) => {
+          this.backendClient.setTextModeConfig({ scene, rules });
+        },
+
+        onClose: () => {
+          this.backendClient.setTextMode(false);
+        },
+
+      });
+
+    // Tracks whether text mode is currently on (for show/hide + toasts).
+    this._textEnabled = false;
+
     // ======================
     // PERSONALITY HANDLERS (shared)
     // ======================
@@ -800,6 +829,52 @@ export class AvatarRuntime {
 
         },
 
+        // Text-mode state/capability + scene/rules. Relay to the tray,
+        // seed the chatbox settings, show/hide the chatbox, and surface
+        // block reasons via the notifier.
+        onTextMode: (msg) => {
+
+          if (
+            window.personaShell &&
+            typeof window.personaShell.notifyTextMode === 'function'
+          ) {
+            window.personaShell.notifyTextMode({
+              enabled:   !!msg.enabled,
+              available: !!msg.available,
+            });
+          }
+
+          // Keep the chatbox settings + title in sync with the backend.
+          this.chatBox.setSettings({
+            scene: msg.scene,
+            rules: msg.rules,
+            name:  msg.name,
+          });
+
+          if (msg.message) {
+            this.modeNotifier.notify(msg.message, { kind: 'warn' });
+          }
+
+          if (msg.enabled && !this._textEnabled) {
+            this.chatBox.show();
+            this.modeNotifier.notify(
+              'Text mode on — local model only, muted.',
+              { kind: 'info' }
+            );
+          } else if (!msg.enabled && this._textEnabled) {
+            this.chatBox.hide();
+            this.modeNotifier.notify('Text mode off.', { kind: 'info' });
+          }
+
+          this._textEnabled = !!msg.enabled;
+
+        },
+
+        // A reply to show in the text-mode chatbox (assistant turns only).
+        onChatMessage: (role, text) => {
+          this.chatBox.addMessage(role, text);
+        },
+
         // Tier-2 fallback: routed to when the backend can't be reached.
         fallbackChat:
           this.fallbackChat,
@@ -847,6 +922,16 @@ export class AvatarRuntime {
     ) {
       window.personaShell.onSetAdultMode((enabled) => {
         this.backendClient.setAdultMode(enabled);
+      });
+    }
+
+    // Tray -> renderer: the user toggled Text Mode.
+    if (
+      window.personaShell &&
+      typeof window.personaShell.onSetTextMode === 'function'
+    ) {
+      window.personaShell.onSetTextMode((enabled) => {
+        this.backendClient.setTextMode(enabled);
       });
     }
 
@@ -2001,7 +2086,7 @@ export class AvatarRuntime {
 
       const uiHit =
         elAtPoint.closest(
-          '.lil-gui, .persona-text-input, .persona-confirm-label'
+          '.lil-gui, .persona-text-input, .persona-confirm-label, .persona-chatbox'
         );
 
       if (uiHit) {

@@ -14,6 +14,7 @@ const {
   setActivePersonality,
   setPersonalityRoster,
   setAdultModeState,
+  setTextModeState,
 } = require('./tray');
 const tools = require('./tools');
 const { loadSettings, saveSettings } = require('./userSettings');
@@ -36,6 +37,10 @@ function registerIpcHandlers() {
 
   ipcMain.on('persona:adult-mode-state', (_event, state) => {
     setAdultModeState(state);
+  });
+
+  ipcMain.on('persona:text-mode-state', (_event, state) => {
+    setTextModeState(state);
   });
 
   // Renderer asks the shell to hide its window.

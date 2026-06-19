@@ -263,6 +263,24 @@ contextBridge.exposeInMainWorld(
 
     },
 
+    // ── Text mode (muted text roleplay, local-model only) ────────────
+
+    // Renderer -> shell: backend text-mode state { enabled, available }.
+    notifyTextMode: (state) =>
+      ipcRenderer.send('persona:text-mode-state', state),
+
+    // Shell -> renderer: the user toggled the tray Text Mode checkbox.
+    onSetTextMode: (callback) => {
+
+      ipcRenderer.on(
+        'persona:set-text-mode',
+        (_event, enabled) => {
+          callback(enabled);
+        }
+      );
+
+    },
+
     // ── Tier-2 client fallback (basic mode) ──────────────────────────
     //
     // When the backend is unreachable, BackendClient routes user turns

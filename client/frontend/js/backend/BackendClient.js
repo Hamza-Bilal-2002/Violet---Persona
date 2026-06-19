@@ -57,6 +57,8 @@ export class BackendClient {
     onPersonality,
     onPersonalities,
     onAdultMode,
+    onTextMode,
+    onChatMessage,
     fallbackChat,
     onModeChange,
   }) {
@@ -103,6 +105,22 @@ export class BackendClient {
     // Drives the tray toggle (enabled/greyed) and a notifier. Optional.
     this.onAdultMode =
       onAdultMode || null;
+
+    // Text-mode frames: { enabled, available, scene, rules, message? }.
+    // Drives the tray toggle, the chatbox, and its settings. Optional.
+    this.onTextMode =
+      onTextMode || null;
+
+    // onChatMessage(role, text): a turn to display in the text-mode
+    // chatbox. Only assistant replies route here (the chatbox echoes the
+    // user's own messages locally). Optional.
+    this.onChatMessage =
+      onChatMessage || null;
+
+    // True while text mode is active — replies are shown in the chatbox
+    // and played muted (animate/emote, no audio) instead of spoken.
+    this.textMode =
+      false;
 
     // Called when a confirmation-required tool is intercepted.
     // Signature: ({ name, args, resolve, reject }) => void
@@ -519,6 +537,61 @@ export class BackendClient {
 
   }
 
+  // Ask the backend to toggle text mode (muted text roleplay). Like adult
+  // mode it's backend-gated to the local model and a no-op in basic mode.
+  setTextMode(enabled) {
+
+    if (this.mode === 'basic') {
+
+      if (this.onTextMode) {
+        this.onTextMode({
+          enabled: false,
+          available: false,
+          message: 'Text mode needs the local model — unavailable while the backend is offline.',
+        });
+      }
+
+      return;
+
+    }
+
+    if (
+      this.ws &&
+      this.ws.readyState === WebSocket.OPEN
+    ) {
+
+      this.ws.send(
+        JSON.stringify({
+          type: 'set_text_mode',
+          enabled: !!enabled,
+        })
+      );
+
+    }
+
+  }
+
+  // Persist edited text-mode scene/rules (from the chatbox settings).
+  // Backend saves them and rebuilds the live prompt if text mode is on.
+  setTextModeConfig({ scene, rules } = {}) {
+
+    if (
+      this.ws &&
+      this.ws.readyState === WebSocket.OPEN
+    ) {
+
+      this.ws.send(
+        JSON.stringify({
+          type: 'set_text_mode_config',
+          scene,
+          rules,
+        })
+      );
+
+    }
+
+  }
+
   send(text) {
 
     const trimmed =
@@ -670,12 +743,48 @@ export class BackendClient {
 
     }
 
+    if (msg.type === 'text_mode') {
+
+      // Text-mode state/capability + scene/rules. Track the active flag so
+      // replies route to the chatbox (muted) while it's on.
+      this.textMode = !!msg.enabled;
+
+      if (this.onTextMode) {
+        this.onTextMode(msg);
+      }
+
+      return;
+
+    }
+
     if (msg.type !== 'reply') {
 
       console.warn(
         'BackendClient: unknown frame type',
         msg
       );
+
+      return;
+
+    }
+
+    // Text mode: show the reply in the chatbox and play it MUTED — the
+    // avatar emotes + animates but speaks no audio. The full text (with
+    // *asterisk* actions) goes to the chatbox; the dialogue item carries
+    // it only for the muted hold duration.
+    if (this.textMode) {
+
+      if (this.onChatMessage) {
+        this.onChatMessage('assistant', msg.text);
+      }
+
+      this.dialogueManager.enqueue({
+        text:      msg.text,
+        emotion:   msg.emotion,
+        animation: msg.animation,
+        muted:     true,
+        priority:  1,
+      });
 
       return;
 

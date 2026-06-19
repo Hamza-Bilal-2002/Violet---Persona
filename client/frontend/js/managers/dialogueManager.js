@@ -64,6 +64,10 @@ export class DialogueManager {
     this.currentAudio =
       null;
 
+    // Pending timer for a muted (text-mode) message's hold duration.
+    this._mutedTimer =
+      null;
+
     this.currentAnimation =
       null;
 
@@ -211,6 +215,11 @@ export class DialogueManager {
       animation:
         message.animation ||
         'talking',
+
+      // Text mode: muted message. Drives emotion + body animation but
+      // plays no audio and attaches no lip-sync (mouth stays still).
+      muted:
+        message.muted || false,
 
       priority:
         message.priority || 1,
@@ -361,6 +370,15 @@ export class DialogueManager {
     this._baseEmotionIntensity =
       message.emotion?.intensity ?? 1;
 
+    // Text mode: muted. Emote + animate, no audio, no lip-sync.
+    if (message.muted) {
+
+      this._speakMuted(message);
+
+      return;
+
+    }
+
     if (this.ttsClient) {
 
       try {
@@ -384,6 +402,40 @@ export class DialogueManager {
     }
 
     this._speakViaBrowser(message);
+
+  }
+
+  // Muted playback (text mode). No audio and no lip-sync — the avatar
+  // just emotes and body-animates while the text shows in the chatbox.
+  // We hold for a duration that roughly tracks the message length, then
+  // drain the queue exactly like the TTS paths do via finishMessage().
+  _speakMuted(message) {
+
+    this._ttsStarted = true;
+
+    this.playAnimation(message.animation);
+    this.playEmotion(message.emotion);
+
+    const words =
+      (message.text || '')
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean)
+        .length;
+
+    // ~320ms/word, clamped so very short or very long replies still feel
+    // natural. Mouth stays still (no lip-sync attached).
+    const ms =
+      Math.min(7000, Math.max(1600, words * 320));
+
+    this._mutedTimer =
+      setTimeout(
+        () => {
+          this._mutedTimer = null;
+          this.finishMessage();
+        },
+        ms
+      );
 
   }
 
@@ -705,6 +757,17 @@ export class DialogueManager {
 
     this._emotionTime =
       0;
+
+    // Cancel a pending muted (text-mode) hold timer.
+
+    if (this._mutedTimer) {
+
+      clearTimeout(this._mutedTimer);
+
+      this._mutedTimer =
+        null;
+
+    }
 
     // Stop Piper audio if it was the current path.
 

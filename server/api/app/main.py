@@ -52,10 +52,12 @@ from .llm import (
     client as llm_client,
     build_system_prompt,
     build_adult_system_prompt,
+    build_text_mode_prompt,
     LocalModelRequiredError,
 )
 from .memory import memory as memory_store
 from .personalities import store as personalities
+from .text_mode import store as text_mode_store
 from .protocol import parse_reply
 from .store import store as message_store
 from .tools import SERVER_SIDE_TOOLS
@@ -277,10 +279,11 @@ async def chat_ws(websocket: WebSocket):
         await websocket.close()
         return
 
-    # Per-connection adult-mode state. Mutable holder so the helper
-    # functions can flip it. 'adult' gates memory writes + tool use and
-    # locks the session to the local model.
-    conn = {"adult": False}
+    # Per-connection private-mode state. Mutable holder so the helper
+    # functions can flip it. `mode` is None | "deep" | "text" — both
+    # private modes gate memory writes + tool use and lock the session to
+    # the local model; they're mutually exclusive.
+    conn = {"mode": None}
 
     # Tell the client the personality roster + the active one so the tray
     # and the renderer's voice selection start in sync.
@@ -288,14 +291,19 @@ async def chat_ws(websocket: WebSocket):
         await websocket.send_text(json.dumps(_personalities_frame()))
         if active_p:
             await websocket.send_text(json.dumps(_personality_frame(active_p)))
-        # Adult-mode capability frame: starts off, and tells the tray
-        # whether it's even available (local model reachable) so the tray
-        # can grey the toggle when there's no local model.
+        # Private-mode capability frames: both start off, and carry whether
+        # they're even available (local model reachable) so the tray can
+        # grey the toggles when there's no local model. The text-mode frame
+        # also seeds the chat UI with the current scene + rules.
+        local_ok = llm_client.local_available()
         await websocket.send_text(json.dumps({
             "type": "adult_mode",
             "enabled": False,
-            "available": llm_client.local_available(),
+            "available": local_ok,
         }))
+        await websocket.send_text(json.dumps(
+            _text_mode_frame(enabled=False, available=local_ok)
+        ))
     except Exception:
         logger.exception("failed to send initial personality frames")
 
@@ -315,6 +323,18 @@ async def chat_ws(websocket: WebSocket):
                 await _set_adult_mode(websocket, session, conn, raw)
                 continue
 
+            # Control frame: text-mode toggle from the tray (muted text
+            # roleplay). Same local-only gate as adult mode.
+            if _is_set_text_mode(raw):
+                await _set_text_mode(websocket, session, conn, raw)
+                continue
+
+            # Control frame: edit the text-mode scene/rules from the chat
+            # settings. Persists server-side and rebuilds the live prompt.
+            if _is_set_text_mode_config(raw):
+                await _update_text_mode_config(websocket, session, conn, raw)
+                continue
+
             user_text = _parse_user_frame(raw)
             if not user_text:
                 continue
@@ -324,9 +344,9 @@ async def chat_ws(websocket: WebSocket):
             # Text/voice personality switch ("switch to cheerful", "be
             # the calm one"). Reliable regex match — no LLM/tool needed,
             # so it works regardless of provider. Skips the dialogue turn.
-            # Suppressed during adult mode so an in-scene line never trips
-            # an accidental personality switch.
-            if not conn["adult"]:
+            # Suppressed during a private mode so an in-scene line never
+            # trips an accidental personality switch.
+            if conn["mode"] is None:
                 matched = personalities.match(user_text)
                 if matched and matched["id"] != personalities.active_id():
                     await _switch_personality(
@@ -351,19 +371,25 @@ async def chat_ws(websocket: WebSocket):
 
             try:
                 final_text, used_tools = await _run_dialogue_turn(
-                    websocket, session, user_text, adult=conn["adult"]
+                    websocket, session, user_text,
+                    private=(conn["mode"] is not None),
                 )
             except LocalModelRequiredError:
-                # Adult mode + local model went away mid-scene. Block the
-                # turn and say so — the content is NOT sent to any cloud
-                # provider. Mode stays on so it resumes when local returns.
-                logger.warning("adult-mode turn blocked: local model unavailable")
+                # A private mode + the local model went away mid-scene.
+                # Block the turn and say so — the content is NOT sent to any
+                # cloud provider. Mode stays on so it resumes when local
+                # returns. Report on the right toggle's frame.
+                logger.warning(
+                    f"{conn['mode']}-mode turn blocked: local model unavailable"
+                )
+                frame_type = "text_mode" if conn["mode"] == "text" else "adult_mode"
+                label = "Text mode" if conn["mode"] == "text" else "Deep mode"
                 await websocket.send_text(json.dumps({
-                    "type": "adult_mode",
+                    "type": frame_type,
                     "enabled": True,
                     "available": False,
                     "message": (
-                        "Deep mode needs the local model — it's offline, so "
+                        f"{label} needs the local model — it's offline, so "
                         "your message wasn't sent anywhere."
                     ),
                 }))
@@ -393,12 +419,13 @@ async def chat_ws(websocket: WebSocket):
 
             await websocket.send_text(json.dumps(parsed.to_dict()))
 
-            # Adult mode is WRITE-NONE: it may READ memory (RAG recall above
-            # still runs) but must never write. We skip BOTH the long-term
-            # fact extraction AND the short-term on-disk transcript, so no
-            # explicit content lands in any store. The scene stays coherent
-            # via the in-memory session history, which isn't persisted.
-            if not conn["adult"]:
+            # Private modes are WRITE-NONE: they may READ memory (RAG recall
+            # above still runs) but must never write. We skip BOTH the
+            # long-term fact extraction AND the short-term on-disk
+            # transcript, so no private content lands in any store. The
+            # scene stays coherent via the in-memory session history, which
+            # isn't persisted.
+            if conn["mode"] is None:
 
                 # Phase 4 Wave 4.3: append this turn to the persistent
                 # store. We persist the RAW final_text (with tags) so
@@ -440,7 +467,7 @@ async def _run_dialogue_turn(
     websocket: WebSocket,
     session,
     user_text: str,
-    adult: bool = False,
+    private: bool = False,
 ) -> tuple[str, bool]:
     """Drive one user turn through the LLM, handling any tool calls.
 
@@ -449,9 +476,9 @@ async def _run_dialogue_turn(
     persisted assistant turn so it is excluded from future session
     seeding (preventing the model from learning to skip tool calls).
 
-    When `adult` is set, ALL tools are disabled: PC actions and memory
-    writes alike are refused (fed back to the model so it answers in
-    text). Adult mode is a private scene, not a work session.
+    When `private` is set (deep or text mode), ALL tools are disabled: PC
+    actions and memory writes alike are refused (fed back to the model so
+    it answers in text). A private mode is a scene, not a work session.
     """
 
     response = session.send_user_message(user_text)
@@ -472,9 +499,9 @@ async def _run_dialogue_turn(
 
         for fc in response["function_calls"]:
 
-            # Adult mode: no tools at all (no PC actions, no memory writes).
-            # Refuse and let the model continue in text.
-            if adult:
+            # Private mode: no tools at all (no PC actions, no memory
+            # writes). Refuse and let the model continue in text.
+            if private:
                 results.append((fc["name"], {"result": {
                     "disabled": True,
                     "reason": "tools are off in this mode",
@@ -547,7 +574,7 @@ async def _set_adult_mode(
     if want:
         # Hard gate: no local model -> do not enable, do not fall back.
         if not llm_client.local_available():
-            conn["adult"] = False
+            conn["mode"] = None
             session.set_require_local(False)
             await websocket.send_text(json.dumps({
                 "type": "adult_mode",
@@ -568,7 +595,13 @@ async def _set_adult_mode(
             }))
             return
 
-        conn["adult"] = True
+        # Mutually exclusive with text mode — turn that off in the UI first.
+        if conn["mode"] == "text":
+            await websocket.send_text(json.dumps(
+                _text_mode_frame(enabled=False, available=True)
+            ))
+
+        conn["mode"] = "deep"
         session.set_require_local(True)
         session.set_system_prompt(build_adult_system_prompt(adult_p.get("prompt")))
 
@@ -593,7 +626,7 @@ async def _set_adult_mode(
         logger.info("deep mode ON (local-locked)")
 
     else:
-        conn["adult"] = False
+        conn["mode"] = None
         session.set_require_local(False)
 
         # Restore the active personality prompt + voice.
@@ -609,6 +642,136 @@ async def _set_adult_mode(
             "available": True,
         }))
         logger.info("deep mode OFF")
+
+
+def _is_set_text_mode(raw: str) -> bool:
+    try:
+        o = json.loads(raw)
+        return isinstance(o, dict) and o.get("type") == "set_text_mode"
+    except json.JSONDecodeError:
+        return False
+
+
+def _is_set_text_mode_config(raw: str) -> bool:
+    try:
+        o = json.loads(raw)
+        return isinstance(o, dict) and o.get("type") == "set_text_mode_config"
+    except json.JSONDecodeError:
+        return False
+
+
+def _text_mode_frame(
+    enabled: bool,
+    available: bool,
+    message: str | None = None,
+) -> dict:
+    """Build a text_mode frame carrying state + the current scene/rules so
+    the chat UI can render and edit them."""
+    cfg = text_mode_store.get()
+    frame = {
+        "type": "text_mode",
+        "enabled": enabled,
+        "available": available,
+        "name": cfg.get("name", "Text Mode"),
+        "scene": cfg.get("scene", ""),
+        "rules": cfg.get("rules", ""),
+    }
+    if message:
+        frame["message"] = message
+    return frame
+
+
+async def _set_text_mode(
+    websocket: WebSocket,
+    session,
+    conn: dict,
+    raw: str,
+) -> None:
+    """Enable/disable text mode (muted text roleplay) on a live session.
+
+    Same local-only gate as deep mode: refuses rather than falling back to
+    a cloud provider. When enabled, locks the session to the local model
+    and swaps to the text-mode prompt built from the editable scene/rules.
+    Disabling restores the active personality prompt + voice.
+    """
+    try:
+        want = bool((json.loads(raw) or {}).get("enabled"))
+    except Exception:
+        return
+
+    if want:
+        if not llm_client.local_available():
+            conn["mode"] = None
+            session.set_require_local(False)
+            await websocket.send_text(json.dumps(_text_mode_frame(
+                enabled=False,
+                available=False,
+                message="Text mode needs the local model — it's not connected.",
+            )))
+            logger.info("text mode refused: local model unavailable")
+            return
+
+        # Mutually exclusive with deep mode — turn that off in the UI first.
+        if conn["mode"] == "deep":
+            await websocket.send_text(json.dumps({
+                "type": "adult_mode",
+                "enabled": False,
+                "available": True,
+            }))
+
+        cfg = text_mode_store.get()
+        conn["mode"] = "text"
+        session.set_require_local(True)
+        session.set_system_prompt(
+            build_text_mode_prompt(cfg.get("scene"), cfg.get("rules"))
+        )
+        await websocket.send_text(json.dumps(
+            _text_mode_frame(enabled=True, available=True)
+        ))
+        logger.info("text mode ON (local-locked)")
+
+    else:
+        conn["mode"] = None
+        session.set_require_local(False)
+        active_p = personalities.active()
+        session.set_system_prompt(
+            build_system_prompt(active_p.get("prompt") if active_p else None)
+        )
+        if active_p:
+            await websocket.send_text(json.dumps(_personality_frame(active_p)))
+        await websocket.send_text(json.dumps(
+            _text_mode_frame(enabled=False, available=True)
+        ))
+        logger.info("text mode OFF")
+
+
+async def _update_text_mode_config(
+    websocket: WebSocket,
+    session,
+    conn: dict,
+    raw: str,
+) -> None:
+    """Persist edited scene/rules from the chat settings, then — if text
+    mode is currently live — rebuild the session prompt so the change takes
+    effect immediately. Echoes the updated config back to the UI."""
+    try:
+        obj = json.loads(raw) or {}
+    except Exception:
+        return
+
+    scene = obj.get("scene")
+    rules = obj.get("rules")
+    cfg = text_mode_store.update(scene=scene, rules=rules)
+
+    if conn["mode"] == "text":
+        session.set_system_prompt(
+            build_text_mode_prompt(cfg.get("scene"), cfg.get("rules"))
+        )
+
+    await websocket.send_text(json.dumps(_text_mode_frame(
+        enabled=(conn["mode"] == "text"),
+        available=llm_client.local_available(),
+    )))
 
 
 async def _switch_personality(

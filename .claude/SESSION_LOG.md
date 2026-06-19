@@ -6,7 +6,30 @@ this is what we actually did. Pairs with the memory index (MEMORY.md).
 
 ---
 
-## 2026-06-19 (latest) — Deep mode (local-model-only private mode)
+## 2026-06-20 — Text Mode (muted text roleplay + chatbox)
+
+- Muted text-to-text roleplay; the text sibling of deep mode. Avatar emotes
+  + body-animates per message but plays NO audio. Local-model only (same
+  provider lock); allows *asterisks*; never breaks character.
+- **Generalized the gating**: `conn["adult"]` -> `conn["mode"]` (None|deep|
+  text). Both private modes share provider lock + write-none + tool-refuse;
+  mutually exclusive. `_run_dialogue_turn(adult=)` -> `(private=)`.
+- **Backend**: `server/config/text_mode.json` defaults + `text_mode.py` store
+  (writable `/data/text_mode.json` overlay for user-edited scene/rules).
+  `llm.py build_text_mode_prompt` (+ `_TEXT_MODE_RULES`). `main.py`
+  `set_text_mode` + `set_text_mode_config` frames, `_text_mode_frame`.
+- **Frontend**: `ui/chatBox.js` (dark-glass chatbox — bubbles, *asterisk*→
+  italic, Enter-send, fullscreen toggle, Scene/Rules settings panel).
+  `DialogueManager._speakMuted` (animate+emote, no audio). `BackendClient`
+  text-mode routing (`textMode`, `setTextMode`/`setTextModeConfig`/
+  `onTextMode`/`onChatMessage`). Tray "Text Mode (local only)" toggle;
+  preload/ipc bridges; `.persona-chatbox` in the click-through hit-test.
+- Scene + rules editable live from the chat settings, persisted server-side.
+- Dormant until the local model runs. See [[text-mode]], [[adult-mode]].
+
+---
+
+## 2026-06-19 — Deep mode (local-model-only private mode)
 
 - A gated conversation mode hard-locked to the local model — never the API.
 - **Provider lock** (`llm.py`): `ChatSession.set_require_local(True)` makes

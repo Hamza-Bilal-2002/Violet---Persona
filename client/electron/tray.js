@@ -89,6 +89,10 @@ let activePersonalityId = null;
 let adultModeEnabled   = false;
 let adultModeAvailable = false;
 
+// Text mode (muted text roleplay) — same local-only gating as Deep Mode.
+let textModeEnabled    = false;
+let textModeAvailable  = false;
+
 // ─── Service status labels ────────────────────────────────────────────────────
 
 function _waDot() {
@@ -137,6 +141,14 @@ function setAdultModeState(state) {
   if (!state) return;
   if (typeof state.available === 'boolean') adultModeAvailable = state.available;
   if (typeof state.enabled === 'boolean')   adultModeEnabled   = state.enabled;
+  rebuildTrayMenu();
+}
+
+// Called from ipc.js when the renderer relays backend text-mode frames.
+function setTextModeState(state) {
+  if (!state) return;
+  if (typeof state.available === 'boolean') textModeAvailable = state.available;
+  if (typeof state.enabled === 'boolean')   textModeEnabled   = state.enabled;
   rebuildTrayMenu();
 }
 
@@ -353,6 +365,20 @@ function rebuildTrayMenu() {
       },
     },
 
+    // ── Text Mode (muted text roleplay, local-model only) ─────────────────
+    {
+      label:   textModeAvailable
+                 ? 'Text Mode (local only)'
+                 : 'Text Mode (needs local model)',
+      type:    'checkbox',
+      checked: textModeEnabled,
+      enabled: textModeAvailable,
+      click:   (menuItem) => {
+        const w = getMainWindow();
+        if (w) w.webContents.send('persona:set-text-mode', menuItem.checked);
+      },
+    },
+
     { type: 'separator' },
 
     {
@@ -426,4 +452,5 @@ module.exports = {
   setActivePersonality,
   setPersonalityRoster,
   setAdultModeState,
+  setTextModeState,
 };

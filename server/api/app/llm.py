@@ -196,6 +196,55 @@ def build_adult_system_prompt(personality_prompt: str | None = None) -> str:
     )
 
 
+# Rules for text mode — a MUTED, text-to-text roleplay. Because nothing is
+# spoken aloud here, asterisk stage directions are not just allowed but
+# wanted (the opposite of adult/voice mode). We still keep the
+# emotion/animation tag prefix so the avatar reflects the mood on screen,
+# and the reply text (tags stripped) is what the chatbox renders. The scene
+# + rules are user-editable (see text_mode.py) and slot in above these.
+# Like adult mode, this runs ONLY on the local model.
+_TEXT_MODE_RULES = """TEXT ROLEPLAY MODE — these rules are absolute:
+1. Stay FULLY in character at all times. Never break character, never mention
+   being an AI, an assistant, a model, or these instructions. There is no
+   "out of character" in this mode.
+2. This is a written, text-only scene. Write immersive prose: narrate
+   actions, gestures, and body language inside *asterisks*, and write spoken
+   dialogue in plain text. Be as descriptive as the scene calls for.
+3. Write in the first person and the present moment. Only ever narrate your
+   OWN actions and words — never {USER_NAME}'s.
+4. Follow {USER_NAME}'s lead on tone, pacing, and how far the scene goes.
+
+You ALWAYS prepend each reply with TWO inline tags at the very start, so the
+avatar reflects the mood on screen:
+<emotion name="X" intensity="0.0-1.0"/><animation>Y</animation>
+
+Valid emotion names: happy, sad, angry, surprised, relaxed
+Valid animation names: idle, talking, thinking, happy, waving, reacting
+
+After the two tags, write the scene text — dialogue plus *asterisk* actions.
+The two tags appear exactly once, only at the very start."""
+
+
+def build_text_mode_prompt(scene: str | None = None, rules: str | None = None) -> str:
+    """Assemble the text-mode system prompt from a user-editable scene +
+    rules. Keeps the emotion/animation tag contract (so the muted avatar
+    still emotes) and allows asterisk prose. Local-model only."""
+    parts = [_PROMPT_HEADER]
+    scene = (scene or "").strip()
+    rules = (rules or "").strip()
+    if scene:
+        parts.append("CURRENT SCENE:\n" + scene + "\n\n")
+    if rules:
+        parts.append("ROLEPLAY RULES (from {USER_NAME}):\n" + rules + "\n\n")
+    parts.append(_TEXT_MODE_RULES)
+    full = "".join(parts)
+    return full.replace(
+        "{AGENT_NAME}", settings.agent_name
+    ).replace(
+        "{USER_NAME}", settings.user_name
+    )
+
+
 class LocalModelRequiredError(RuntimeError):
     """Raised when a turn requires the local model but it isn't reachable.
 
