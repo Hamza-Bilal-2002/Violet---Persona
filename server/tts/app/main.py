@@ -25,6 +25,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 from pydantic import BaseModel
 
+from .normalize import normalize_for_speech
+
 
 # ---- config -----------------------------------------------------------------
 
@@ -135,6 +137,14 @@ async def synthesize(req: SynthesizeRequest):
         logger.warning("synthesize: empty text")
         return Response(status_code=400)
 
+    # Rewrite TTS-hostile tokens ("hmph" -> "hmf", "i's" -> "eyes") into
+    # phonetic-friendly spellings before the model sees them. This only
+    # affects the spoken audio — the renderer shows the original text
+    # untouched. Engine-independent, so it survives a future Kokoro swap.
+    spoken = normalize_for_speech(text)
+    if spoken != text:
+        logger.info(f"normalized for speech: {text!r} -> {spoken!r}")
+
     voice = get_voice(req.voice)
 
     # PiperVoice.synthesize writes a complete RIFF/WAV file into a
@@ -145,7 +155,7 @@ async def synthesize(req: SynthesizeRequest):
 
     with wave.open(wav_io, "wb") as wav_file:
 
-        voice.synthesize(text, wav_file)
+        voice.synthesize(spoken, wav_file)
 
     wav_bytes = wav_io.getvalue()
 
