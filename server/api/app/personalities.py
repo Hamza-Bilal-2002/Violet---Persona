@@ -94,14 +94,14 @@ class PersonalityStore:
                 data.setdefault("voice", "")
                 data.setdefault("default_emotion", "relaxed")
                 data.setdefault("prompt", "")
-                logger.info("personalities: adult mode config loaded")
+                logger.info("personalities: deep mode config loaded")
                 return data
             except FileNotFoundError:
                 continue
             except Exception as e:
                 logger.warning(f"personalities: failed to load adult config: {e}")
                 return None
-        logger.info("personalities: no adult mode config found")
+        logger.info("personalities: no deep mode config found")
         return None
 
     def adult(self) -> dict | None:

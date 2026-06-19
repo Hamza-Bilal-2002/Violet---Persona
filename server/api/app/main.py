@@ -555,7 +555,7 @@ async def _set_adult_mode(
                 "available": False,
                 "message": "Deep mode needs the local model — it's not connected.",
             }))
-            logger.info("adult mode refused: local model unavailable")
+            logger.info("deep mode refused: local model unavailable")
             return
 
         adult_p = personalities.adult()
@@ -590,7 +590,7 @@ async def _set_adult_mode(
             },
             "animation": "talking",
         }))
-        logger.info("adult mode ON (local-locked)")
+        logger.info("deep mode ON (local-locked)")
 
     else:
         conn["adult"] = False
@@ -608,7 +608,7 @@ async def _set_adult_mode(
             "enabled": False,
             "available": True,
         }))
-        logger.info("adult mode OFF")
+        logger.info("deep mode OFF")
 
 
 async def _switch_personality(
