@@ -202,6 +202,19 @@ export class AvatarRuntime {
     this._opacityFadeEndPx =
       120;
 
+    // Pending confirmation state. Set by _enterConfirmationMode,
+    // cleared by _exitConfirmationMode. Holds { args, resolve, reject }
+    // for the in-flight send_whatsapp confirmation.
+
+    this._confirmationPending =
+      null;
+
+    // DOM refs for the confirmation label (created in
+    // _mountElectronTextInput alongside the text input).
+
+    this._confirmLabel =
+      null;
+
   }
 
   async init() {
@@ -547,6 +560,60 @@ export class AvatarRuntime {
 
         },
 
+        // Confirmation handler for tools like send_whatsapp.
+        // Shows the confirmation UI, speaks the prompt, and registers
+        // a voice interceptor so the user can also say yes/no/send it.
+
+        onConfirmationRequired: ({ name, args, resolve, reject }) => {
+
+          this._enterConfirmationMode(args, resolve, reject);
+
+          // Voice path: next voice/text input goes to the interceptor
+          // instead of the backend WebSocket.
+          this.backendClient.interceptNextSend((voiceText) => {
+
+            const lower = voiceText.toLowerCase().trim();
+
+            const YES = ['yes', 'yeah', 'yep', 'send', 'send it', 'ok',
+                         'okay', 'confirm', 'go', 'do it', 'sure'];
+
+            const NO  = ['no', 'nope', 'cancel', "don't", 'stop',
+                         'nevermind', 'never mind', 'abort'];
+
+            if (YES.some((w) => lower.includes(w))) {
+
+              this._exitConfirmationMode();
+              resolve(args);
+
+            } else if (NO.some((w) => lower.includes(w))) {
+
+              this._exitConfirmationMode();
+              reject(new Error('cancelled'));
+
+            } else {
+
+              // Treat voice input as message override.
+              this._exitConfirmationMode();
+              resolve({ ...args, message: voiceText });
+
+            }
+
+          });
+
+          // Avatar speaks the confirmation prompt.
+          const preview = args.message && args.message.length > 50
+            ? args.message.slice(0, 50) + '…'
+            : (args.message || '');
+
+          this.dialogueManager.enqueue({
+            text:      `Send "${preview}" to ${args.to}? Press Enter to confirm, or say yes.`,
+            emotion:   { name: 'angry', intensity: 0.35 },
+            animation: 'talking',
+            priority:  2,
+          });
+
+        },
+
       });
 
     this.backendClient.connect();
@@ -773,12 +840,66 @@ export class AvatarRuntime {
 
     this._electronTextInput = input;
 
+    // Confirmation label — floats above the text input during
+    // send_whatsapp confirmation, showing the pending message.
+
+    const confirmLabel = document.createElement('div');
+    confirmLabel.className = 'persona-confirm-label';
+
+    Object.assign(confirmLabel.style, {
+      position:       'fixed',
+      width:          '256px',
+      padding:        '5px 14px',
+      borderRadius:   '10px',
+      background:     'rgba(255, 200, 60, 0.12)',
+      border:         '1px solid rgba(255, 200, 60, 0.4)',
+      color:          'rgba(255, 220, 80, 0.92)',
+      fontSize:       '11px',
+      lineHeight:     '1.5',
+      wordBreak:      'break-word',
+      display:        'none',
+      zIndex:         '999999',
+      boxSizing:      'border-box',
+      pointerEvents:  'none',
+    });
+
+    this._confirmLabel = confirmLabel;
+    document.body.appendChild(confirmLabel);
+
     input.addEventListener('keydown', (e) => {
+
+      // Esc cancels any pending confirmation.
+      if (e.key === 'Escape' && this._confirmationPending) {
+
+        const { reject } = this._confirmationPending;
+        this._exitConfirmationMode();
+        reject(new Error('cancelled'));
+        return;
+
+      }
 
       if (e.key !== 'Enter') return;
 
-      const text = input.value.trim();
+      // Confirmation mode: Enter (empty) = confirm, Enter (text) = override message.
+      if (this._confirmationPending) {
 
+        const { args, resolve } = this._confirmationPending;
+        const overrideText = input.value.trim();
+
+        this._exitConfirmationMode();
+
+        resolve(
+          overrideText
+            ? { ...args, message: overrideText }
+            : args
+        );
+
+        return;
+
+      }
+
+      // Normal mode.
+      const text = input.value.trim();
       if (!text) return;
 
       this.dialogueManager.resetIdle();
@@ -861,6 +982,12 @@ export class AvatarRuntime {
     this._electronTextInput.style.bottom = `${inputBottom}px`;
     this._electronTextInput.style.right  = '';
 
+    // Confirm label sits 38px above the text input.
+    if (this._confirmLabel) {
+      this._confirmLabel.style.left   = `${inputLeft}px`;
+      this._confirmLabel.style.bottom = `${inputBottom + 38}px`;
+    }
+
   }
 
   _startTextInputPositionLoop() {
@@ -873,6 +1000,51 @@ export class AvatarRuntime {
     };
 
     this._textInputRaf = requestAnimationFrame(tick);
+
+  }
+
+  // ----------------------------------------------------------------
+  // Confirmation mode — entered when a send_whatsapp tool call is
+  // intercepted. Changes input styling and shows the confirm label.
+  // ----------------------------------------------------------------
+
+  _enterConfirmationMode(args, resolve, reject) {
+
+    const input = this._electronTextInput;
+    if (!input) return;
+
+    this._confirmationPending = { args, resolve, reject };
+
+    input.placeholder = 'Enter ↵ to send  ·  Esc to cancel  ·  or type a different message';
+    input.style.border = '1px solid rgba(255, 200, 60, 0.55)';
+    input.value = '';
+
+    if (this._confirmLabel) {
+      const preview = args.message && args.message.length > 60
+        ? args.message.slice(0, 60) + '…'
+        : (args.message || '');
+      this._confirmLabel.textContent = `Send to ${args.to}: "${preview}"`;
+      this._confirmLabel.style.display = 'block';
+    }
+
+    setTimeout(() => input.focus(), 50);
+
+  }
+
+  _exitConfirmationMode() {
+
+    const input = this._electronTextInput;
+    if (!input) return;
+
+    this._confirmationPending = null;
+
+    input.placeholder = 'Message Violet…';
+    input.style.border = '1px solid rgba(255,255,255,0.12)';
+    input.value = '';
+
+    if (this._confirmLabel) {
+      this._confirmLabel.style.display = 'none';
+    }
 
   }
 
@@ -1221,7 +1393,7 @@ export class AvatarRuntime {
 
       const uiHit =
         elAtPoint.closest(
-          '.lil-gui, .persona-text-input'
+          '.lil-gui, .persona-text-input, .persona-confirm-label'
         );
 
       if (uiHit) {

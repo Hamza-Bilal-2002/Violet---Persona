@@ -30,12 +30,20 @@ const RECONNECT_BASE_MS =
 const RECONNECT_MAX_MS =
   30000;
 
+// Tools that must pause for user confirmation before executing.
+// BackendClient intercepts these and calls onConfirmationRequired
+// instead of immediately firing shell.executeTool.
+
+const CONFIRMATION_TOOLS =
+  new Set(['send_whatsapp']);
+
 export class BackendClient {
 
   constructor({
     url,
     dialogueManager,
     onStatusChange,
+    onConfirmationRequired,
   }) {
 
     this.url =
@@ -47,6 +55,21 @@ export class BackendClient {
     this.onStatusChange =
       onStatusChange ||
       (() => {});
+
+    // Called when a confirmation-required tool is intercepted.
+    // Signature: ({ name, args, resolve, reject }) => void
+    // resolve(confirmedArgs) → tool executes with confirmedArgs
+    // reject(err)           → tool result sent as cancelled
+
+    this.onConfirmationRequired =
+      onConfirmationRequired || null;
+
+    // One-shot interceptor for the next send() call (voice path).
+    // Set by callers (e.g. AvatarRuntime) when awaiting confirmation,
+    // cleared immediately on first use.
+
+    this._sendInterceptor =
+      null;
 
     this.ws =
       null;
@@ -263,12 +286,41 @@ export class BackendClient {
   // SEND USER MESSAGE
   // ======================
 
+  // Register a one-shot interceptor for the next send() call.
+  // Used by AvatarRuntime to capture voice input while a confirmation
+  // is pending — the voice transcript goes to the interceptor instead
+  // of the backend WebSocket.
+
+  interceptNextSend(fn) {
+
+    this._sendInterceptor = fn;
+
+  }
+
   send(text) {
 
     const trimmed =
       (text || '').trim();
 
     if (!trimmed) {
+
+      return;
+
+    }
+
+    // Confirmation mode: route voice/text to the interceptor instead
+    // of the backend. The interceptor is cleared immediately so only
+    // the first input is consumed (subsequent inputs go to backend).
+
+    if (this._sendInterceptor) {
+
+      const interceptor =
+        this._sendInterceptor;
+
+      this._sendInterceptor =
+        null;
+
+      interceptor(trimmed);
 
       return;
 
@@ -416,9 +468,57 @@ export class BackendClient {
         : null;
 
     if (
-      shell &&
-      typeof shell.executeTool === 'function'
+      !shell ||
+      typeof shell.executeTool !== 'function'
     ) {
+
+      this._sendToolResult(id, {
+        error: 'tool execution requires the Electron shell',
+      });
+
+      return;
+
+    }
+
+    // Confirmation-required tools: pause execution and ask the user
+    // before actually running the side-effect. onConfirmationRequired
+    // is wired by AvatarRuntime; it drives the text-input confirmation
+    // UI and registers a voice interceptor on this client.
+
+    if (
+      CONFIRMATION_TOOLS.has(name) &&
+      typeof this.onConfirmationRequired === 'function'
+    ) {
+
+      try {
+
+        const confirmedArgs =
+          await new Promise((resolve, reject) => {
+            this.onConfirmationRequired({ name, args, resolve, reject });
+          });
+
+        outcome =
+          await shell.executeTool(name, confirmedArgs);
+
+      } catch (err) {
+
+        const isCancelled =
+          err && err.message === 'cancelled';
+
+        outcome = {
+          result: {
+            cancelled: true,
+            message: isCancelled
+              ? 'User cancelled'
+              : (err && err.message) || String(err),
+          },
+        };
+
+      }
+
+    } else {
+
+      // Normal (immediate) execution path.
 
       try {
 
@@ -435,15 +535,6 @@ export class BackendClient {
         };
 
       }
-
-    } else {
-
-      // Browser dev mode — no shell to run host-OS actions.
-
-      outcome = {
-        error:
-          'tool execution requires the Electron shell',
-      };
 
     }
 

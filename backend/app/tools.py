@@ -429,6 +429,46 @@ MEDIA_CONTROL = {
 }
 
 
+SEND_WHATSAPP = {
+    "type": "function",
+    "function": {
+        "name": "send_whatsapp",
+        "description": (
+            "Send a WhatsApp message to a contact by name or phone number. "
+            "Use this whenever the user asks to send, text, or message someone "
+            "on WhatsApp.\n\n"
+            "Examples:\n"
+            "  'send a WhatsApp to Mom saying I'll be late'\n"
+            "    → to='Mom', message=\"I'll be late\"\n"
+            "  'text Ahmed on WhatsApp: coming in 10 minutes'\n"
+            "    → to='Ahmed', message='Coming in 10 minutes'\n"
+            "  'message +92 300 1234567 I'm on my way'\n"
+            "    → to='+923001234567', message=\"I'm on my way\"\n\n"
+            "The executor will ask the user to confirm before sending. "
+            "Always extract the message content verbatim from what the user said."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "to": {
+                    "type": "string",
+                    "description": (
+                        "Contact name (e.g. 'Mom', 'Ahmed') or phone number "
+                        "in international format (e.g. '+923001234567'). "
+                        "Use the name exactly as the user said it."
+                    ),
+                },
+                "message": {
+                    "type": "string",
+                    "description": "The message text to send. Extracted verbatim from user input.",
+                },
+            },
+            "required": ["to", "message"],
+        },
+    },
+}
+
+
 TOOL_DECLARATIONS = [
     OPEN_URL,
     OPEN_APP,
@@ -440,4 +480,5 @@ TOOL_DECLARATIONS = [
     SPOTIFY_PLAY,
     SPOTIFY_CONTROL,
     MEDIA_CONTROL,
+    SEND_WHATSAPP,
 ]
