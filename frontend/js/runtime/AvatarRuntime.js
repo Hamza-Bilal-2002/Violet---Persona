@@ -621,41 +621,61 @@ export class AvatarRuntime {
           // the real name(s) + profile picture(s) once available. When
           // more than one contact matches (e.g. several "Ahmed"), the card
           // becomes a picker so the user chooses the right one.
-          if (
+          //
+          // Whatever happens — slow client, no shell, an exception — the
+          // card must never stay stuck on "Resolving…": every path below
+          // lands on a confirmable card (or cancels) so the user is never
+          // trapped and the backend's tool-wait doesn't silently time out.
+
+          const canResolve =
             window.personaShell &&
-            typeof window.personaShell.resolveWhatsAppContact === 'function'
-          ) {
-            try {
-              const resolved = await Promise.race([
-                window.personaShell.resolveWhatsAppContact(args.to),
-                new Promise((_, rej) =>
-                  setTimeout(() => rej(new Error('timeout')), 8000)
-                ),
-              ]);
+            typeof window.personaShell.resolveWhatsAppContact === 'function';
 
-              const matches = (resolved && resolved.matches) || [];
+          if (!canResolve) {
+            // No shell to resolve through — fall back to a plain card built
+            // from the raw name so the user can still confirm or cancel.
+            this._applyFallbackMatch(args);
+            return;
+          }
 
-              // User may have already confirmed/cancelled during the wait.
-              if (!this._confirmationPending) return;
+          try {
+            const resolved = await Promise.race([
+              window.personaShell.resolveWhatsAppContact(args.to),
+              new Promise((_, rej) =>
+                setTimeout(() => rej(new Error('resolve-timeout')), 6000)
+              ),
+            ]);
 
-              if (!matches.length) {
-                // Nobody on WhatsApp by that name/number — bail out and let
-                // Violet report it rather than sending to the wrong person.
-                this._exitConfirmationMode();
-                reject(new Error(`Couldn't find "${args.to}" on WhatsApp.`));
-                return;
-              }
+            const matches = (resolved && resolved.matches) || [];
 
-              // Stash matches + selection so keydown/voice can resolve to an
-              // exact chatId instead of re-matching the name loosely.
-              this._confirmationPending.matches       = matches;
-              this._confirmationPending.selectedIndex = 0;
+            // User may have already confirmed/cancelled during the wait.
+            if (!this._confirmationPending) return;
 
-              this._renderConfirmCard();
-
-            } catch {
-              // Keep the fallback (loading) card — non-fatal.
+            if (!matches.length) {
+              // Nobody on WhatsApp by that name/number — bail out and let
+              // Violet report it rather than sending to the wrong person.
+              this._exitConfirmationMode();
+              reject(new Error(`Couldn't find "${args.to}" on WhatsApp.`));
+              return;
             }
+
+            // Stash matches + selection so keydown/voice can resolve to an
+            // exact chatId instead of re-matching the name loosely.
+            this._confirmationPending.matches       = matches;
+            this._confirmationPending.selectedIndex = 0;
+
+            this._renderConfirmCard();
+
+          } catch (err) {
+            // Timed out or the resolver threw (client not ready, offline,
+            // etc.). Don't leave the spinner up — drop to a confirmable
+            // fallback card. The send still verifies the contact backend-
+            // side, so confirming here is safe.
+            console.warn(
+              'AvatarRuntime: WhatsApp contact resolve failed —',
+              err && err.message ? err.message : err
+            );
+            this._applyFallbackMatch(args);
           }
 
         },
@@ -1117,6 +1137,29 @@ export class AvatarRuntime {
 
   }
 
+  // Drop the confirmation card to a plain, confirmable state built from
+  // the raw `to` string when resolution can't give us real matches (no
+  // shell, slow/unready client, timeout, or an error). The user can still
+  // send or cancel; the backend re-resolves + verifies the contact, so a
+  // fallback confirm never sends to an unverified number. Guards against
+  // a stale call after the user already acted.
+
+  _applyFallbackMatch(args) {
+
+    if (!this._confirmationPending) return;
+
+    this._confirmationPending.matches = [{
+      name:          args.to,
+      number:        '',
+      profilePicUrl: null,
+      chatId:        null, // no verified id — backend resolves on send
+    }];
+    this._confirmationPending.selectedIndex = 0;
+
+    this._renderConfirmCard();
+
+  }
+
   // Build the args handed back to the tool once the user confirms.
   // Carries the selected contact's exact chatId so the backend sends to
   // precisely who was shown — never a loose name re-match. An optional
@@ -1131,8 +1174,10 @@ export class AvatarRuntime {
     const out = { ...args };
     if (overrideMessage) out.message = overrideMessage;
     if (sel) {
-      out.to     = sel.name;
-      out.chatId = sel.chatId;
+      out.to = sel.name;
+      // Only carry a verified chatId. Fallback matches have none, so the
+      // backend re-resolves + verifies the name on send.
+      if (sel.chatId) out.chatId = sel.chatId;
     }
     return out;
 
