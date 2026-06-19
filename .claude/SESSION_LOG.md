@@ -6,6 +6,36 @@ this is what we actually did. Pairs with the memory index (MEMORY.md).
 
 ---
 
+## 2026-06-19 (latest) — Tier-2 client fallback + TTS normalization (Wave 3)
+
+- **TTS speech normalization** (`server/tts/app/normalize.py`): rewrites
+  espeak-hostile tokens before synthesis ("i's"→"eyes", "hmph"→"hmf",
+  interjections, percent, elongated vowels). Server-side, engine-independent
+  (survives Piper→Kokoro). Only the spoken copy is rewritten. Fixes the
+  "extra i's"→"i s" and "hmph"→"h m p h" mispronunciations.
+- **Tier-2 client fallback (basic mode)**: when the backend is unreachable,
+  `BackendClient` flips to a 'basic' mode (after 3 failed reconnects) and
+  routes input to `FallbackChat` → GPT direct via Electron main
+  (`client/electron/fallbackChat.js`, key in userData / OPENAI_API_KEY).
+  NO tools/RAG/memory; bundled limited personalities
+  (`config/basicPersonalities.js`) + hand-authored `config/basicProfile.js`.
+  GPT replies plain-text, enqueued with the personality's default emotion.
+  Returns to full mode on the next successful WS open (clears ephemeral
+  history). `setPersonality`/`send` route by mode — single entry point, so
+  VoiceFlow/text/tray unchanged.
+- **Notifiers** (`ui/modeNotifier.js`): toast on transitions ("Backend
+  offline — basic GPT mode", "Backend online — full mode restored") +
+  persistent basic-mode pill. Basic mode suppresses the reconnecting overlay.
+- **Kokoro** saved to memory ([[tts-engine-upgrade]]) for the local-model
+  setup — Piper→Kokoro is a contained backend swap; frontend stays light
+  (TTS is server-side, renderer just plays the WAV).
+
+**Next:** Wave 4 — expand bundled personality roster + a Settings UI field
+for the GPT key (currently env var / settings file only). Then local-model
+testing when Hamza has his PC (boot Ollama under `--profile local`).
+
+---
+
 ## 2026-06-19 (later still) — Switchable personalities (Wave 2)
 
 - **Backend (2a)**: `server/config/personalities/*.json` (angry_gf default, cheerful,
