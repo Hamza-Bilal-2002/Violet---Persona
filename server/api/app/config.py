@@ -51,6 +51,26 @@ class Settings(BaseSettings):
     # .env to pick a different model (gpt-4.1-mini, gpt-4o, etc.).
     OPENAI_MODEL: str = "gpt-4o-mini"
 
+    # ── Provider selection (local model + GPT fallback) ──────────────
+    #
+    # 'auto'   → use the local model when reachable, else GPT.
+    # 'local'  → force the local model (errors if unreachable).
+    # 'openai' → force GPT (current testing default behavior).
+    #
+    # Ollama (and llama.cpp/LM Studio) expose an OpenAI-compatible API,
+    # so the local provider is just the openai SDK pointed at a
+    # different base_url. The local model isn't running yet, so 'auto'
+    # falls through to GPT until LOCAL_LLM_URL answers.
+    LLM_PROVIDER: str = "auto"
+    LOCAL_LLM_URL: str = "http://ollama:11434/v1"
+    LOCAL_LLM_MODEL: str = "llama3"
+
+    # What the api is allowed to do when GPT (not the local model) is
+    # answering. 'full' keeps tools + RAG + memory (used for testing
+    # now). 'basic' strips them so the cloud provider never touches
+    # memory/documents in production.
+    FALLBACK_MODE: str = "full"
+
     LOG_LEVEL: str = "INFO"
     ALLOWED_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
 

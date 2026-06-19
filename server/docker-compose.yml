@@ -128,6 +128,36 @@ services:
     networks:
       - persona_net
 
+  # Local LLM (Ollama) — the primary model in production. Gated behind
+  # the 'local' compose profile so it only starts when Hamza is at his
+  # PC: `docker compose --profile local up -d`. Without it, the api's
+  # LLM_PROVIDER=auto probes http://ollama:11434 (no answer) and falls
+  # back to GPT — so the stack runs fine today with no local model.
+  #
+  # First time on the PC, pull the model into the running container:
+  #   docker compose --profile local exec ollama ollama pull llama3
+  # (or the GGUF tag you're using), then set LOCAL_LLM_MODEL to match.
+  ollama:
+    image: ollama/ollama:latest
+    container_name: persona_ollama
+    profiles: ["local"]
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    restart: unless-stopped
+    networks:
+      - persona_net
+    # GPU passthrough — uncomment on the PC (needs NVIDIA Container
+    # Toolkit) so the model runs on the GPU instead of CPU:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
 networks:
   persona_net:
     driver: bridge
@@ -135,3 +165,4 @@ networks:
 volumes:
   whisper_cache:
   persona_data:
+  ollama_models:

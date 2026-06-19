@@ -114,6 +114,7 @@ async def health():
         "llm_configured": bool(settings.OPENAI_API_KEY),
         "model": settings.OPENAI_MODEL,
         "memory_count": memory_store.count(),
+        "llm": llm_client.status(),
     }
 
 

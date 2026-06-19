@@ -27,12 +27,20 @@ have no built-in chat-session abstraction; we maintain the
 from __future__ import annotations
 
 import json
+import time
 
+import httpx
 from loguru import logger
 from openai import OpenAI
 
 from .config import settings
 from .tools import TOOL_DECLARATIONS
+
+
+# How long a local-model reachability probe stays valid before we
+# re-check. Short enough to notice the local server coming up / going
+# down within a few turns; long enough not to probe on every message.
+LOCAL_PROBE_TTL_SECONDS = 15.0
 
 
 # System prompt is built at module import from agent identity in
@@ -177,12 +185,14 @@ class ChatSession:
 
     def __init__(
         self,
-        client: "OpenAI",
-        model: str,
+        llm: "LLMClient",
         seed_history: list[dict] | None = None,
     ) -> None:
-        self._client = client
-        self._model = model
+        # Hold the LLMClient (not a fixed client/model) so each turn
+        # resolves the active provider — local model when it's up, GPT
+        # otherwise — and a session that started on GPT can move to the
+        # local model the moment it comes online, mid-conversation.
+        self._llm = llm
         # System message is index 0 forever. Trim_history preserves it.
         self._messages: list[dict] = [
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -291,8 +301,15 @@ class ChatSession:
         else:
             outgoing = self._messages
 
-        response = self._client.chat.completions.create(
-            model=self._model,
+        client, model, _name = self._llm.active_provider()
+        if client is None:
+            raise RuntimeError(
+                "No LLM provider available (set OPENAI_API_KEY or start "
+                "the local model)."
+            )
+
+        response = client.chat.completions.create(
+            model=model,
             messages=outgoing,
             tools=TOOL_DECLARATIONS,
         )
@@ -354,22 +371,97 @@ class ChatSession:
 
 
 class LLMClient:
-    """Thin wrapper that owns OpenAI client config and produces
-    chat sessions on demand."""
+    """Owns provider config (local model + OpenAI) and produces chat
+    sessions. Both Ollama and OpenAI speak the same chat-completions
+    API, so each provider is just the openai SDK with a different
+    base_url + model. active_provider() picks which one answers a given
+    turn based on LLM_PROVIDER and a cached reachability probe."""
 
     def __init__(self) -> None:
-        if not settings.OPENAI_API_KEY:
-            logger.warning(
-                "OPENAI_API_KEY is empty — replies will fail until .env is filled in."
-            )
-            self._configured = False
-            self._openai = None
-        else:
+        # ── OpenAI (cloud) ──────────────────────────────────────────
+        if settings.OPENAI_API_KEY:
             self._openai = OpenAI(api_key=settings.OPENAI_API_KEY)
-            self._configured = True
+            self._openai_model = settings.OPENAI_MODEL
+        else:
+            self._openai = None
+            self._openai_model = settings.OPENAI_MODEL
+            logger.warning(
+                "OPENAI_API_KEY is empty — GPT fallback unavailable until "
+                "server/api/.env is filled in."
+            )
 
-        self._model = settings.OPENAI_MODEL
-        logger.info(f"LLM provider: openai, model: {self._model}")
+        # ── Local model (Ollama / llama.cpp / LM Studio) ────────────
+        # OpenAI-compatible endpoint. api_key is required by the SDK but
+        # ignored by these servers.
+        self._local_url = (settings.LOCAL_LLM_URL or "").rstrip("/")
+        self._local_model = settings.LOCAL_LLM_MODEL
+        if self._local_url:
+            self._local = OpenAI(base_url=self._local_url, api_key="local")
+        else:
+            self._local = None
+
+        self._provider_pref = (settings.LLM_PROVIDER or "auto").lower()
+        self._fallback_mode = (settings.FALLBACK_MODE or "full").lower()
+
+        # Cached local reachability probe: (checked_at, available).
+        self._local_probe: tuple[float, bool] = (0.0, False)
+
+        self._configured = bool(self._openai or self._local)
+        logger.info(
+            f"LLM provider pref: {self._provider_pref} | "
+            f"openai_model: {self._openai_model} | "
+            f"local: {self._local_url or 'none'} ({self._local_model}) | "
+            f"fallback_mode: {self._fallback_mode}"
+        )
+
+    # ── provider selection ──────────────────────────────────────────
+
+    def _local_available(self) -> bool:
+        """Cheap cached reachability check for the local model server.
+        OpenAI-compatible servers answer GET {base}/models."""
+        if not self._local:
+            return False
+        now = time.time()
+        checked_at, available = self._local_probe
+        if now - checked_at < LOCAL_PROBE_TTL_SECONDS:
+            return available
+        ok = False
+        try:
+            r = httpx.get(f"{self._local_url}/models", timeout=2.0)
+            ok = r.status_code == 200
+        except Exception:
+            ok = False
+        self._local_probe = (now, ok)
+        return ok
+
+    def active_provider(self) -> tuple:
+        """Return (client, model, name) for the provider that should
+        answer right now. Honors LLM_PROVIDER; 'auto' prefers the local
+        model when reachable and falls back to GPT."""
+        pref = self._provider_pref
+        if pref == "openai":
+            return (self._openai, self._openai_model, "openai")
+        if pref == "local":
+            return (self._local, self._local_model, "local")
+        # auto
+        if self._local_available():
+            return (self._local, self._local_model, "local")
+        return (self._openai, self._openai_model, "openai")
+
+    def active_provider_name(self) -> str:
+        return self.active_provider()[2]
+
+    def status(self) -> dict:
+        """Provider status for /health and (later) the WS mode frame."""
+        name = self.active_provider_name()
+        return {
+            "provider_pref": self._provider_pref,
+            "active_provider": name,
+            "local_url": self._local_url or None,
+            "local_reachable": self._local_available(),
+            "fallback_mode": self._fallback_mode,
+            "using_fallback": name == "openai" and self._provider_pref != "openai",
+        }
 
     def create_session(
         self,
@@ -382,13 +474,10 @@ class LLMClient:
         """
         if not self._configured:
             raise RuntimeError(
-                "OpenAI not configured. Set OPENAI_API_KEY in server/api/.env"
+                "No LLM provider configured. Set OPENAI_API_KEY in "
+                "server/api/.env, or start the local model."
             )
-        return ChatSession(
-            self._openai,
-            self._model,
-            seed_history=seed_history,
-        )
+        return ChatSession(self, seed_history=seed_history)
 
     def extract_memories(
         self,
@@ -399,12 +488,13 @@ class LLMClient:
         """Distill durable facts from one conversation turn.
 
         Returns a list of {content, type, importance}. Runs through the
-        SAME configured client/model as the dialogue, so when the model
-        moves local this extraction moves local too — the cloud provider
-        never becomes the keeper of long-term memory. Best-effort: any
-        failure returns [] rather than raising into the turn.
+        SAME active provider as the dialogue, so when the model moves
+        local this extraction moves local too — the cloud provider never
+        becomes the keeper of long-term memory. Best-effort: any failure
+        returns [] rather than raising into the turn.
         """
-        if not self._configured:
+        client, model, _name = self.active_provider()
+        if client is None:
             return []
 
         prompt = (
@@ -435,8 +525,8 @@ class LLMClient:
         )
 
         try:
-            resp = self._openai.chat.completions.create(
-                model=self._model,
+            resp = client.chat.completions.create(
+                model=model,
                 messages=[
                     {"role": "system", "content": prompt},
                     {"role": "user", "content": content},
