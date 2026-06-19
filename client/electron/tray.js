@@ -13,6 +13,7 @@ const {
 
 const spotify = require('./spotify');
 const { showQr, hideQr } = require('./qrWindow');
+const { createMemoryWindow } = require('./memoryWindow');
 const whatsapp = require('./tools/whatsapp');
 
 // Backend api base. Hardcoded localhost to match the renderer's other
@@ -264,6 +265,11 @@ function rebuildTrayMenu() {
     {
       label: 'Memory',
       submenu: [
+        {
+          label: 'View Memory…',
+          click: () => createMemoryWindow(),
+        },
+        { type: 'separator' },
         {
           label: 'Reset Memory…',
           click: () => {
