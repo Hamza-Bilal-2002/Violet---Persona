@@ -6,6 +6,21 @@ this is what we actually did. Pairs with the memory index (MEMORY.md).
 
 ---
 
+## 2026-06-19 (later) — Memory viewer + local-model Tier-1
+
+- **Memory viewer**: tray → Memory → View Memory… (`client/electron/memoryWindow.js`,
+  `memoryPreload.js`, `memoryView.html`). Live edit, delete, semantic search, reset.
+- **Tier-1 provider abstraction** (`server/api/app/llm.py`): local (Ollama) + GPT, picked
+  per turn via `active_provider()` from `LLM_PROVIDER=auto|local|openai`. `auto` probes
+  local, falls back to GPT (so it works today). Ollama is a compose service under
+  `profiles:[local]`. `/health` reports provider status. See [[local-model-fallback]].
+
+**Next waves (planned, not started):** (6) switchable personalities text+voice — backend
+config + tray/voice switch; (7) Tier-2 client-side GPT fallback for PC-off + notifiers.
+Decisions locked: Ollama, client-side fallback key, voice-per-personality.
+
+---
+
 ## 2026-06-19 — Backend separation + long-term memory system (Phase 5)
 
 **Where we left off:** Long-term memory system fully built and verified end-to-end
