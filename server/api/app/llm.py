@@ -205,6 +205,18 @@ class ChatSession:
         # right tool_call_ids in the right order.
         self._last_tool_calls: list[dict] = []
 
+        # Phase 5: long-term memory context. Set per-turn from semantic
+        # retrieval (see main.py). Kept OUTSIDE self._messages — injected
+        # ephemerally at request time in _run_once — so it never gets
+        # persisted, trimmed, or entangled with tool_call pairing, and
+        # always reflects the latest user query.
+        self._memory_context: str = ""
+
+    def set_memory_context(self, text: str) -> None:
+        """Replace the long-term memory block injected on the next API
+        call. Pass "" to inject nothing."""
+        self._memory_context = (text or "").strip()
+
     def send_user_message(self, text: str) -> dict:
         """Send fresh user input. Returns {"text", "function_calls"}."""
         self._messages.append({"role": "user", "content": text})
@@ -267,9 +279,21 @@ class ChatSession:
         message in our history (must, so subsequent tool messages
         reference valid tool_call_ids) and returns parsed shape."""
 
+        # Inject the long-term memory block (if any) as an ephemeral
+        # system message right after the main system prompt. Built fresh
+        # here so it's never stored in self._messages.
+        if self._memory_context:
+            outgoing = (
+                [self._messages[0]]
+                + [{"role": "system", "content": self._memory_context}]
+                + self._messages[1:]
+            )
+        else:
+            outgoing = self._messages
+
         response = self._client.chat.completions.create(
             model=self._model,
-            messages=self._messages,
+            messages=outgoing,
             tools=TOOL_DECLARATIONS,
         )
 

@@ -45,8 +45,11 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
+from pydantic import BaseModel
+
 from .config import settings
 from .llm import client as llm_client
+from .memory import memory as memory_store
 from .protocol import parse_reply
 from .store import store as message_store
 
@@ -81,6 +84,11 @@ MAX_TOOL_ROUNDS = 5
 
 MAX_HISTORY_ENTRIES = 60
 
+# How many long-term memories to retrieve and inject per user turn.
+# Small on purpose: a handful of genuinely relevant facts steers the
+# reply without bloating tokens or burying the model in trivia.
+MEMORY_TOP_K = 6
+
 
 app = FastAPI(title=f"{settings.agent_name} Avatar Backend", version="0.1.0")
 
@@ -104,7 +112,100 @@ async def health():
         "status": "ok",
         "llm_configured": bool(settings.OPENAI_API_KEY),
         "model": settings.OPENAI_MODEL,
+        "memory_count": memory_store.count(),
     }
+
+
+# ── Long-term memory: formatting + management API ────────────────────────────
+
+def _format_memories(memories: list[dict]) -> str:
+    """Render recalled memories into the system block the model reads.
+    Empty list -> empty string (injects nothing)."""
+    if not memories:
+        return ""
+    lines = [
+        f"- [{m['type']}] {m['content']}"
+        for m in memories
+    ]
+    return (
+        f"LONG-TERM MEMORY — durable facts you know about {settings.user_name}. "
+        "Use them naturally when relevant; do NOT recite them or mention that you "
+        "have memory unless asked.\n" + "\n".join(lines)
+    )
+
+
+def _public_memory(row: dict) -> dict:
+    """Strip internal fields (e.g. the raw embedding blob) before
+    returning a memory over the REST API."""
+    return {k: v for k, v in row.items() if not k.startswith("_")}
+
+
+class MemoryCreate(BaseModel):
+    content: str
+    type: str = "user"
+    importance: float = 0.5
+    source: str = "manual"
+
+
+class MemoryEdit(BaseModel):
+    content: str | None = None
+    type: str | None = None
+    importance: float | None = None
+
+
+@app.get("/memory")
+async def memory_list():
+    """All stored memories — for the management UI and 'what do you know
+    about me' recall."""
+    return {
+        "count": memory_store.count(),
+        "memories": [_public_memory(m) for m in memory_store.list_all()],
+    }
+
+
+@app.get("/memory/search")
+async def memory_search(q: str, k: int = MEMORY_TOP_K):
+    """Semantic search — handy for debugging retrieval quality."""
+    results = await memory_store.search(q, k=k)
+    return {"query": q, "results": [_public_memory(m) for m in results]}
+
+
+@app.post("/memory")
+async def memory_add(body: MemoryCreate):
+    row = await memory_store.add(
+        body.content,
+        mem_type=body.type,
+        importance=body.importance,
+        source=body.source,
+    )
+    if row is None:
+        return {"ok": False, "error": "empty content"}
+    return {"ok": True, "memory": _public_memory(row)}
+
+
+@app.patch("/memory/{mem_id}")
+async def memory_edit(mem_id: int, body: MemoryEdit):
+    row = await memory_store.update(
+        mem_id,
+        content=body.content,
+        mem_type=body.type,
+        importance=body.importance,
+    )
+    if row is None:
+        return {"ok": False, "error": "not found"}
+    return {"ok": True, "memory": _public_memory(row)}
+
+
+@app.delete("/memory/{mem_id}")
+async def memory_delete(mem_id: int):
+    return {"ok": memory_store.delete(mem_id)}
+
+
+@app.post("/memory/reset")
+async def memory_reset():
+    """Wipe all long-term memory. The resettable-memory control."""
+    removed = memory_store.reset()
+    return {"ok": True, "removed": removed}
 
 
 @app.websocket("/chat/ws")
@@ -144,6 +245,21 @@ async def chat_ws(websocket: WebSocket):
                 continue
 
             logger.info(f"user: {user_text}")
+
+            # Phase 5: recall relevant long-term memories for this turn
+            # and inject them into the session. Best-effort — if the
+            # embed service is down, we just run the turn memory-less.
+            try:
+                recalled = await memory_store.search(user_text, k=MEMORY_TOP_K)
+                session.set_memory_context(_format_memories(recalled))
+                if recalled:
+                    logger.info(
+                        f"memory: recalled {len(recalled)} "
+                        f"[{', '.join(str(m['id']) for m in recalled)}]"
+                    )
+            except Exception:
+                logger.exception("memory recall failed — continuing memory-less")
+                session.set_memory_context("")
 
             try:
                 final_text, used_tools = await _run_dialogue_turn(
