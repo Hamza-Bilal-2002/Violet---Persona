@@ -6,6 +6,24 @@ this is what we actually did. Pairs with the memory index (MEMORY.md).
 
 ---
 
+## 2026-06-19 (later still) — Switchable personalities (Wave 2)
+
+- **Backend (2a)**: `server/config/personalities/*.json` (angry_gf default, cheerful,
+  calm, tsundere) — each with prompt body + TTS voice + default emotion. `personalities.py`
+  loads + persists active to `/data/active_personality.txt`. `llm.py` splits the system
+  prompt (shared header + rules, swappable personality body); `set_system_prompt()` swaps
+  live. `main.py` sends roster + active on connect, handles `set_personality` control
+  frames and text "switch to X", GET /personalities.
+- **Voice + UI (2b)**: tts service multi-voice (`/synthesize` takes `voice`, 4 voices baked).
+  TtsClient.setVoice; BackendClient personality frames + setPersonality; AvatarRuntime sets
+  voice on switch + relays tray picks; tray Personality radio submenu.
+- Verified backend over WS (switch via frame + text, tone changes) and tts multi-voice.
+  Full tray→WS→voice loop needs the live app.
+
+**Next:** Wave 3 — Tier-2 client-side GPT fallback (PC-off → basic mode) + notifiers.
+
+---
+
 ## 2026-06-19 (later) — Memory viewer + local-model Tier-1
 
 - **Memory viewer**: tray → Memory → View Memory… (`client/electron/memoryWindow.js`,
