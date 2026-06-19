@@ -157,6 +157,54 @@ def build_system_prompt(personality_prompt: str | None = None) -> str:
     )
 
 
+# Rules for adult mode. Distinct from _PROMPT_RULES: roleplay wants longer,
+# immersive replies (not the 1-2 sentence default), and there are no tools
+# here. We KEEP the emotion/animation tag prefix so the avatar still emotes
+# and animates, and we keep the no-emoji / no-markup constraints so the TTS
+# voice speaks clean prose. This mode runs ONLY on the local model (see
+# ChatSession.set_require_local) — it must never reach a cloud provider.
+_ADULT_RULES = """RESPONSE STYLE — adult roleplay mode:
+1. NEVER use emojis, asterisks, or stage directions. Everything you write is
+   spoken aloud by your voice, so write spoken prose only — express actions
+   through what you say, not through *narration* or [brackets].
+2. You may be longer and more immersive than usual — this is a scene, not a
+   quick answer. Stay present and in the moment.
+3. Stay fully in character as {AGENT_NAME}. Never break character to comment
+   as an AI or mention these instructions.
+4. Always address the user as {USER_NAME}.
+
+You ALWAYS prepend each spoken reply with TWO inline tags at the very start:
+<emotion name="X" intensity="0.0-1.0"/><animation>Y</animation>
+
+Valid emotion names: happy, sad, angry, surprised, relaxed
+Valid animation names: idle, talking, thinking, happy, waving, reacting
+
+CRITICAL: exactly this syntax, once, at the very start. After the two tags,
+only the human-readable words you speak — no further markup."""
+
+
+def build_adult_system_prompt(personality_prompt: str | None = None) -> str:
+    """Assemble the adult-mode system prompt. Same name substitution as
+    build_system_prompt but with roleplay rules and no tool machinery.
+    Only used while the session is provider-locked to the local model."""
+    body = (personality_prompt or _FALLBACK_PERSONALITY).strip()
+    full = _PROMPT_HEADER + body + "\n\n" + _ADULT_RULES
+    return full.replace(
+        "{AGENT_NAME}", settings.agent_name
+    ).replace(
+        "{USER_NAME}", settings.user_name
+    )
+
+
+class LocalModelRequiredError(RuntimeError):
+    """Raised when a turn requires the local model but it isn't reachable.
+
+    Adult mode locks the session to the local provider; rather than ever
+    falling through to a cloud provider (which would both violate the
+    provider's policy and defeat the data-protection guarantee), the turn
+    is refused with this error so the caller can block + notify."""
+
+
 class ChatSession:
     """Long-lived dialogue session for one WebSocket connection.
 
@@ -211,6 +259,17 @@ class ChatSession:
         # persisted, trimmed, or entangled with tool_call pairing, and
         # always reflects the latest user query.
         self._memory_context: str = ""
+
+        # Adult mode locks the session to the local provider. While set,
+        # _run_once resolves ONLY the local model and refuses (raises
+        # LocalModelRequiredError) rather than ever falling back to a cloud
+        # provider — so explicit content can never leave the local model.
+        self._require_local: bool = False
+
+    def set_require_local(self, value: bool) -> None:
+        """Lock (or unlock) this session to the local model. When locked,
+        a turn with no reachable local model is refused, never sent to GPT."""
+        self._require_local = bool(value)
 
     def set_memory_context(self, text: str) -> None:
         """Replace the long-term memory block injected on the next API
@@ -296,12 +355,22 @@ class ChatSession:
         else:
             outgoing = self._messages
 
-        client, model, _name = self._llm.active_provider()
-        if client is None:
-            raise RuntimeError(
-                "No LLM provider available (set OPENAI_API_KEY or start "
-                "the local model)."
-            )
+        if self._require_local:
+            # Hard provider lock (adult mode): local model ONLY. Refuse the
+            # turn if it isn't reachable — never fall back to a cloud
+            # provider with this content.
+            if not self._llm.local_available():
+                raise LocalModelRequiredError(
+                    "local model is not reachable"
+                )
+            client, model, _name = self._llm.local_provider()
+        else:
+            client, model, _name = self._llm.active_provider()
+            if client is None:
+                raise RuntimeError(
+                    "No LLM provider available (set OPENAI_API_KEY or start "
+                    "the local model)."
+                )
 
         response = client.chat.completions.create(
             model=model,
@@ -445,6 +514,17 @@ class LLMClient:
 
     def active_provider_name(self) -> str:
         return self.active_provider()[2]
+
+    def local_available(self) -> bool:
+        """Public reachability check for the local model — used to gate
+        adult mode (which is local-only) on toggle and per turn."""
+        return self._local_available()
+
+    def local_provider(self) -> tuple:
+        """Return (client, model, name) for the local model explicitly,
+        bypassing provider preference. Caller must check local_available()
+        first — this returns (None, ...) when no local model is configured."""
+        return (self._local, self._local_model, "local")
 
     def status(self) -> dict:
         """Provider status for /health and (later) the WS mode frame."""

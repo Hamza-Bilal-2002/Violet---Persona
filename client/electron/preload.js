@@ -241,6 +241,28 @@ contextBridge.exposeInMainWorld(
 
     },
 
+    // ── Adult mode (local-model only) ────────────────────────────────
+    //
+    // A gated toggle: the renderer relays backend adult-mode frames up to
+    // the tray (so the checkbox reflects enabled/available), and the tray
+    // toggle comes back down as a backend switch request.
+
+    // Renderer -> shell: backend adult-mode state { enabled, available }.
+    notifyAdultMode: (state) =>
+      ipcRenderer.send('persona:adult-mode-state', state),
+
+    // Shell -> renderer: the user toggled the tray Adult Mode checkbox.
+    onSetAdultMode: (callback) => {
+
+      ipcRenderer.on(
+        'persona:set-adult-mode',
+        (_event, enabled) => {
+          callback(enabled);
+        }
+      );
+
+    },
+
     // ── Tier-2 client fallback (basic mode) ──────────────────────────
     //
     // When the backend is unreachable, BackendClient routes user turns

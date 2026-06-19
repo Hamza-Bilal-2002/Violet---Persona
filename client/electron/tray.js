@@ -83,6 +83,12 @@ let textInputEnabled      = false;
 let personalityRoster   = [];
 let activePersonalityId = null;
 
+// Adult mode (local-model only). Backend-authoritative: `available`
+// reflects whether a local model is reachable (toggle is greyed when not),
+// `enabled` is the current on/off state echoed back from the backend.
+let adultModeEnabled   = false;
+let adultModeAvailable = false;
+
 // ─── Service status labels ────────────────────────────────────────────────────
 
 function _waDot() {
@@ -123,6 +129,14 @@ function setPersonalityRoster(msg) {
 
 function setActivePersonality(id) {
   activePersonalityId = id;
+  rebuildTrayMenu();
+}
+
+// Called from ipc.js when the renderer relays backend adult-mode frames.
+function setAdultModeState(state) {
+  if (!state) return;
+  if (typeof state.available === 'boolean') adultModeAvailable = state.available;
+  if (typeof state.enabled === 'boolean')   adultModeEnabled   = state.enabled;
   rebuildTrayMenu();
 }
 
@@ -323,6 +337,22 @@ function rebuildTrayMenu() {
       submenu: _personalitySubmenu(),
     },
 
+    // ── Adult Mode (local-model only) ─────────────────────────────────────
+    // Greyed unless a local model is connected; the backend hard-blocks it
+    // on any cloud provider, so this toggle only ever runs locally.
+    {
+      label:   adultModeAvailable
+                 ? 'Deep Mode (local only)'
+                 : 'Deep Mode (needs local model)',
+      type:    'checkbox',
+      checked: adultModeEnabled,
+      enabled: adultModeAvailable,
+      click:   (menuItem) => {
+        const w = getMainWindow();
+        if (w) w.webContents.send('persona:set-adult-mode', menuItem.checked);
+      },
+    },
+
     { type: 'separator' },
 
     {
@@ -395,4 +425,5 @@ module.exports = {
   isTextInputEnabled,
   setActivePersonality,
   setPersonalityRoster,
+  setAdultModeState,
 };

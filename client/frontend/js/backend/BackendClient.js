@@ -56,6 +56,7 @@ export class BackendClient {
     onConfirmationRequired,
     onPersonality,
     onPersonalities,
+    onAdultMode,
     fallbackChat,
     onModeChange,
   }) {
@@ -97,6 +98,11 @@ export class BackendClient {
 
     this.onPersonalities =
       onPersonalities || null;
+
+    // Adult-mode frames from the backend: { enabled, available, message? }.
+    // Drives the tray toggle (enabled/greyed) and a notifier. Optional.
+    this.onAdultMode =
+      onAdultMode || null;
 
     // Called when a confirmation-required tool is intercepted.
     // Signature: ({ name, args, resolve, reject }) => void
@@ -476,6 +482,43 @@ export class BackendClient {
 
   }
 
+  // Ask the backend to toggle adult mode. Backend-gated (local model only)
+  // and backend-authoritative — we just send the request and react to the
+  // `adult_mode` frame that comes back. Only meaningful in full mode: adult
+  // mode requires the backend + local model, so there's nothing to do in
+  // basic (GPT) mode.
+  setAdultMode(enabled) {
+
+    if (this.mode === 'basic') {
+
+      if (this.onAdultMode) {
+        this.onAdultMode({
+          enabled: false,
+          available: false,
+          message: 'Deep mode needs the local model — unavailable while the backend is offline.',
+        });
+      }
+
+      return;
+
+    }
+
+    if (
+      this.ws &&
+      this.ws.readyState === WebSocket.OPEN
+    ) {
+
+      this.ws.send(
+        JSON.stringify({
+          type: 'set_adult_mode',
+          enabled: !!enabled,
+        })
+      );
+
+    }
+
+  }
+
   send(text) {
 
     const trimmed =
@@ -609,6 +652,18 @@ export class BackendClient {
       // Full roster + active id (sent on connect and on switch).
       if (this.onPersonalities) {
         this.onPersonalities(msg);
+      }
+
+      return;
+
+    }
+
+    if (msg.type === 'adult_mode') {
+
+      // Adult-mode state/capability (sent on connect, on toggle, and on a
+      // local-model block). Carries { enabled, available, message? }.
+      if (this.onAdultMode) {
+        this.onAdultMode(msg);
       }
 
       return;

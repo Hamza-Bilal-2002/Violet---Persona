@@ -48,7 +48,12 @@ from loguru import logger
 from pydantic import BaseModel
 
 from .config import settings
-from .llm import client as llm_client, build_system_prompt
+from .llm import (
+    client as llm_client,
+    build_system_prompt,
+    build_adult_system_prompt,
+    LocalModelRequiredError,
+)
 from .memory import memory as memory_store
 from .personalities import store as personalities
 from .protocol import parse_reply
@@ -272,12 +277,25 @@ async def chat_ws(websocket: WebSocket):
         await websocket.close()
         return
 
+    # Per-connection adult-mode state. Mutable holder so the helper
+    # functions can flip it. 'adult' gates memory writes + tool use and
+    # locks the session to the local model.
+    conn = {"adult": False}
+
     # Tell the client the personality roster + the active one so the tray
     # and the renderer's voice selection start in sync.
     try:
         await websocket.send_text(json.dumps(_personalities_frame()))
         if active_p:
             await websocket.send_text(json.dumps(_personality_frame(active_p)))
+        # Adult-mode capability frame: starts off, and tells the tray
+        # whether it's even available (local model reachable) so the tray
+        # can grey the toggle when there's no local model.
+        await websocket.send_text(json.dumps({
+            "type": "adult_mode",
+            "enabled": False,
+            "available": llm_client.local_available(),
+        }))
     except Exception:
         logger.exception("failed to send initial personality frames")
 
@@ -291,6 +309,12 @@ async def chat_ws(websocket: WebSocket):
                 await _switch_personality(websocket, session, raw)
                 continue
 
+            # Control frame: adult-mode toggle from the tray. Gated to the
+            # local model; never enables on a cloud provider.
+            if _is_set_adult_mode(raw):
+                await _set_adult_mode(websocket, session, conn, raw)
+                continue
+
             user_text = _parse_user_frame(raw)
             if not user_text:
                 continue
@@ -300,12 +324,15 @@ async def chat_ws(websocket: WebSocket):
             # Text/voice personality switch ("switch to cheerful", "be
             # the calm one"). Reliable regex match — no LLM/tool needed,
             # so it works regardless of provider. Skips the dialogue turn.
-            matched = personalities.match(user_text)
-            if matched and matched["id"] != personalities.active_id():
-                await _switch_personality(
-                    websocket, session, None, target=matched
-                )
-                continue
+            # Suppressed during adult mode so an in-scene line never trips
+            # an accidental personality switch.
+            if not conn["adult"]:
+                matched = personalities.match(user_text)
+                if matched and matched["id"] != personalities.active_id():
+                    await _switch_personality(
+                        websocket, session, None, target=matched
+                    )
+                    continue
 
             # Phase 5: recall relevant long-term memories for this turn
             # and inject them into the session. Best-effort — if the
@@ -324,8 +351,23 @@ async def chat_ws(websocket: WebSocket):
 
             try:
                 final_text, used_tools = await _run_dialogue_turn(
-                    websocket, session, user_text
+                    websocket, session, user_text, adult=conn["adult"]
                 )
+            except LocalModelRequiredError:
+                # Adult mode + local model went away mid-scene. Block the
+                # turn and say so — the content is NOT sent to any cloud
+                # provider. Mode stays on so it resumes when local returns.
+                logger.warning("adult-mode turn blocked: local model unavailable")
+                await websocket.send_text(json.dumps({
+                    "type": "adult_mode",
+                    "enabled": True,
+                    "available": False,
+                    "message": (
+                        "Deep mode needs the local model — it's offline, so "
+                        "your message wasn't sent anywhere."
+                    ),
+                }))
+                continue
             except Exception as e:
                 logger.exception("dialogue turn failed")
                 await websocket.send_text(
@@ -351,21 +393,28 @@ async def chat_ws(websocket: WebSocket):
 
             await websocket.send_text(json.dumps(parsed.to_dict()))
 
-            # Phase 4 Wave 4.3: append this turn to the persistent
-            # store. We persist the RAW final_text (with tags) so
-            # the model sees its own prior tag formatting on
-            # reload — same shape that lives inside session.
+            # Adult mode is WRITE-NONE: it may READ memory (RAG recall above
+            # still runs) but must never write. We skip BOTH the long-term
+            # fact extraction AND the short-term on-disk transcript, so no
+            # explicit content lands in any store. The scene stays coherent
+            # via the in-memory session history, which isn't persisted.
+            if not conn["adult"]:
 
-            try:
-                message_store.append("user", user_text)
-                message_store.append("assistant", final_text, is_tool_reply=used_tools)
-            except Exception:
-                logger.exception("failed to persist turn — continuing")
+                # Phase 4 Wave 4.3: append this turn to the persistent
+                # store. We persist the RAW final_text (with tags) so
+                # the model sees its own prior tag formatting on
+                # reload — same shape that lives inside session.
 
-            # Phase 5: auto-extract durable facts in the background using
-            # the clean spoken text (tags stripped). Fire-and-forget so it
-            # never delays the next turn.
-            asyncio.create_task(_extract_and_store(user_text, parsed.text))
+                try:
+                    message_store.append("user", user_text)
+                    message_store.append("assistant", final_text, is_tool_reply=used_tools)
+                except Exception:
+                    logger.exception("failed to persist turn — continuing")
+
+                # Phase 5: auto-extract durable facts in the background using
+                # the clean spoken text (tags stripped). Fire-and-forget so it
+                # never delays the next turn.
+                asyncio.create_task(_extract_and_store(user_text, parsed.text))
 
             session.trim_history(MAX_HISTORY_ENTRIES)
 
@@ -391,6 +440,7 @@ async def _run_dialogue_turn(
     websocket: WebSocket,
     session,
     user_text: str,
+    adult: bool = False,
 ) -> tuple[str, bool]:
     """Drive one user turn through the LLM, handling any tool calls.
 
@@ -398,6 +448,10 @@ async def _run_dialogue_turn(
     one tool call round happened — the caller uses this to mark the
     persisted assistant turn so it is excluded from future session
     seeding (preventing the model from learning to skip tool calls).
+
+    When `adult` is set, ALL tools are disabled: PC actions and memory
+    writes alike are refused (fed back to the model so it answers in
+    text). Adult mode is a private scene, not a work session.
     """
 
     response = session.send_user_message(user_text)
@@ -417,6 +471,15 @@ async def _run_dialogue_turn(
         results: list[tuple] = []
 
         for fc in response["function_calls"]:
+
+            # Adult mode: no tools at all (no PC actions, no memory writes).
+            # Refuse and let the model continue in text.
+            if adult:
+                results.append((fc["name"], {"result": {
+                    "disabled": True,
+                    "reason": "tools are off in this mode",
+                }}))
+                continue
 
             # Memory tools run inside the api against the long-term store
             # — never forwarded to the renderer. Everything else is a PC
@@ -452,6 +515,100 @@ def _is_set_personality(raw: str) -> bool:
         return isinstance(o, dict) and o.get("type") == "set_personality"
     except json.JSONDecodeError:
         return False
+
+
+def _is_set_adult_mode(raw: str) -> bool:
+    try:
+        o = json.loads(raw)
+        return isinstance(o, dict) and o.get("type") == "set_adult_mode"
+    except json.JSONDecodeError:
+        return False
+
+
+async def _set_adult_mode(
+    websocket: WebSocket,
+    session,
+    conn: dict,
+    raw: str,
+) -> None:
+    """Enable/disable adult mode on a live session.
+
+    Enabling is GATED on the local model being reachable — if it isn't, we
+    refuse and report it, never enabling on a cloud provider. When enabled
+    we lock the session to the local model (set_require_local), swap to the
+    adult system prompt + voice, and write nothing to memory until it's
+    turned off. Disabling restores the active personality prompt + voice.
+    """
+    try:
+        want = bool((json.loads(raw) or {}).get("enabled"))
+    except Exception:
+        return
+
+    if want:
+        # Hard gate: no local model -> do not enable, do not fall back.
+        if not llm_client.local_available():
+            conn["adult"] = False
+            session.set_require_local(False)
+            await websocket.send_text(json.dumps({
+                "type": "adult_mode",
+                "enabled": False,
+                "available": False,
+                "message": "Deep mode needs the local model — it's not connected.",
+            }))
+            logger.info("adult mode refused: local model unavailable")
+            return
+
+        adult_p = personalities.adult()
+        if not adult_p:
+            await websocket.send_text(json.dumps({
+                "type": "adult_mode",
+                "enabled": False,
+                "available": True,
+                "message": "Deep mode config is missing on the server.",
+            }))
+            return
+
+        conn["adult"] = True
+        session.set_require_local(True)
+        session.set_system_prompt(build_adult_system_prompt(adult_p.get("prompt")))
+
+        # Voice first (so the ack is spoken in the adult voice), then the
+        # state frame (tray reflects it), then the spoken ack.
+        await websocket.send_text(json.dumps(_personality_frame(adult_p)))
+        await websocket.send_text(json.dumps({
+            "type": "adult_mode",
+            "enabled": True,
+            "available": True,
+            "name": adult_p.get("name", "Deep Mode"),
+        }))
+        await websocket.send_text(json.dumps({
+            "type": "reply",
+            "text": "It's just us now.",
+            "emotion": {
+                "name": adult_p.get("default_emotion", "relaxed"),
+                "intensity": 0.5,
+            },
+            "animation": "talking",
+        }))
+        logger.info("adult mode ON (local-locked)")
+
+    else:
+        conn["adult"] = False
+        session.set_require_local(False)
+
+        # Restore the active personality prompt + voice.
+        active_p = personalities.active()
+        session.set_system_prompt(
+            build_system_prompt(active_p.get("prompt") if active_p else None)
+        )
+        if active_p:
+            await websocket.send_text(json.dumps(_personality_frame(active_p)))
+        await websocket.send_text(json.dumps({
+            "type": "adult_mode",
+            "enabled": False,
+            "available": True,
+        }))
+        logger.info("adult mode OFF")
 
 
 async def _switch_personality(

@@ -13,6 +13,7 @@ const {
   isTextInputEnabled,
   setActivePersonality,
   setPersonalityRoster,
+  setAdultModeState,
 } = require('./tray');
 const tools = require('./tools');
 const { loadSettings, saveSettings } = require('./userSettings');
@@ -28,6 +29,13 @@ function registerIpcHandlers() {
 
   ipcMain.on('persona:personalities-roster', (_event, msg) => {
     setPersonalityRoster(msg);
+  });
+
+  // Adult-mode state relayed from the backend (via the renderer) so the
+  // tray's Adult Mode toggle reflects enabled + availability.
+
+  ipcMain.on('persona:adult-mode-state', (_event, state) => {
+    setAdultModeState(state);
   });
 
   // Renderer asks the shell to hide its window.

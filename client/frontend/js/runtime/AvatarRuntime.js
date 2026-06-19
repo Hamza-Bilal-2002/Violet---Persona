@@ -768,6 +768,38 @@ export class AvatarRuntime {
         onPersonalities:
           handlePersonalities,
 
+        // Adult-mode state/capability frames. Relay to the tray (toggle
+        // enabled/greyed) and surface transitions + block reasons via the
+        // notifier. The voice swap rides on the personality frame the
+        // backend sends alongside, so it's handled by onPersonality.
+        onAdultMode: (msg) => {
+
+          if (
+            window.personaShell &&
+            typeof window.personaShell.notifyAdultMode === 'function'
+          ) {
+            window.personaShell.notifyAdultMode({
+              enabled:   !!msg.enabled,
+              available: !!msg.available,
+            });
+          }
+
+          if (msg.message) {
+            // Explicit reason (refused / blocked) — always show it.
+            this.modeNotifier.notify(msg.message, { kind: 'warn' });
+          } else if (msg.enabled && !this._adultEnabled) {
+            this.modeNotifier.notify(
+              'Deep mode on — local model only.',
+              { kind: 'info' }
+            );
+          } else if (!msg.enabled && this._adultEnabled) {
+            this.modeNotifier.notify('Deep mode off.', { kind: 'info' });
+          }
+
+          this._adultEnabled = !!msg.enabled;
+
+        },
+
         // Tier-2 fallback: routed to when the backend can't be reached.
         fallbackChat:
           this.fallbackChat,
@@ -803,6 +835,18 @@ export class AvatarRuntime {
     ) {
       window.personaShell.onSetPersonality((id) => {
         this.backendClient.setPersonality(id);
+      });
+    }
+
+    // Tray -> renderer: the user toggled Adult Mode. Relay to the backend
+    // (gated + authoritative there); the resulting adult_mode frame comes
+    // back through onAdultMode above.
+    if (
+      window.personaShell &&
+      typeof window.personaShell.onSetAdultMode === 'function'
+    ) {
+      window.personaShell.onSetAdultMode((enabled) => {
+        this.backendClient.setAdultMode(enabled);
       });
     }
 

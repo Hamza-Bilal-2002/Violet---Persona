@@ -31,6 +31,14 @@ _DIR_CANDIDATES = [
     Path(__file__).resolve().parent.parent.parent / "config" / "personalities",
 ]
 
+# Deep mode lives in its own file OUTSIDE the personalities dir so it never
+# lands in the public roster (tray list / switch matcher). It's a gated
+# toggle, not a pick-from-the-list personality.
+_ADULT_CANDIDATES = [
+    Path("/app/config/deep_mode.json"),
+    Path(__file__).resolve().parent.parent.parent / "config" / "deep_mode.json",
+]
+
 ACTIVE_PATH = Path(
     os.environ.get("PERSONA_ACTIVE_PERSONALITY_PATH", "/data/active_personality.txt")
 )
@@ -49,6 +57,7 @@ class PersonalityStore:
         self._items: dict[str, dict] = {}
         self._load()
         self._active = self._load_active()
+        self._adult = self._load_adult()
 
     # ── loading ─────────────────────────────────────────────────────
 
@@ -73,6 +82,32 @@ class PersonalityStore:
             f"personalities: loaded {len(self._items)} "
             f"({', '.join(self._items)})"
         )
+
+    def _load_adult(self) -> dict | None:
+        """Load the adult-mode personality from its standalone file. Kept
+        separate from _items so it's never exposed in the roster."""
+        for path in _ADULT_CANDIDATES:
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                data.setdefault("id", "intimate")
+                data.setdefault("name", "Deep Mode")
+                data.setdefault("voice", "")
+                data.setdefault("default_emotion", "relaxed")
+                data.setdefault("prompt", "")
+                logger.info("personalities: adult mode config loaded")
+                return data
+            except FileNotFoundError:
+                continue
+            except Exception as e:
+                logger.warning(f"personalities: failed to load adult config: {e}")
+                return None
+        logger.info("personalities: no adult mode config found")
+        return None
+
+    def adult(self) -> dict | None:
+        """The adult-mode personality (prompt + voice + emotion), or None
+        if no config is present."""
+        return self._adult
 
     def _load_active(self) -> str:
         try:

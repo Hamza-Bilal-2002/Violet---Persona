@@ -6,7 +6,29 @@ this is what we actually did. Pairs with the memory index (MEMORY.md).
 
 ---
 
-## 2026-06-19 (latest) — Tier-2 client fallback + TTS normalization (Wave 3)
+## 2026-06-19 (latest) — Deep mode (local-model-only private mode)
+
+- A gated conversation mode hard-locked to the local model — never the API.
+- **Provider lock** (`llm.py`): `ChatSession.set_require_local(True)` makes
+  `_run_once` use ONLY the local provider and raise `LocalModelRequiredError`
+  rather than ever falling back to GPT. `build_adult_system_prompt` keeps the
+  emotion/animation tags. `local_available()` / `local_provider()` accessors.
+- **Backend** (`main.py`): `set_adult_mode` control frame, gated on
+  `local_available()` (refuse, don't enable, if no local model). `adult_mode`
+  frames (capability on connect + state on toggle + block on local-down).
+  These turns: read memory (RAG) but WRITE NONE — skips extraction, skips the
+  on-disk transcript, refuses all tools. Personality match suppressed.
+- **Config**: `server/config/deep_mode.json`, loaded separately by
+  `personalities.adult()`, excluded from the public roster.
+- **Client**: tray "Deep Mode (local only)" checkbox (greyed when no local
+  model, backend-authoritative); `BackendClient.setAdultMode`/`onAdultMode`
+  (no-op in basic mode — defeats the Tier-2 GPT path); preload bridges;
+  notifier toasts. Voice via the personality frame.
+- Dormant until the local model runs (toggle greyed now). Test at setup.
+
+---
+
+## 2026-06-19 (earlier) — Tier-2 client fallback + TTS normalization (Wave 3)
 
 - **TTS speech normalization** (`server/tts/app/normalize.py`): rewrites
   espeak-hostile tokens before synthesis ("i's"→"eyes", "hmph"→"hmf",
