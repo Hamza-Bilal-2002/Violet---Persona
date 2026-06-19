@@ -22,7 +22,7 @@
 //   (whoever spoke last gets the action).
 //
 // Adding a tool:
-//   1. Append a FunctionDeclaration in backend/app/tools.py
+//   1. Append a FunctionDeclaration in server/api/app/tools.py
 //   2. Implement the handler here as ./tools/<name>.js exporting
 //      `async (args) => result`
 //   3. Register it in REGISTRY with optional deferred:true

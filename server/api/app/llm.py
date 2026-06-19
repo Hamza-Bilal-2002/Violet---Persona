@@ -358,7 +358,7 @@ class LLMClient:
         """
         if not self._configured:
             raise RuntimeError(
-                "OpenAI not configured. Set OPENAI_API_KEY in backend/.env"
+                "OpenAI not configured. Set OPENAI_API_KEY in server/api/.env"
             )
         return ChatSession(
             self._openai,

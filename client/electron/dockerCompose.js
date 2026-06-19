@@ -1,9 +1,10 @@
 // Persona desktop shell — docker compose bootstrap.
 //
 // On app launch we fire-and-forget `docker compose up -d` from the
-// project root so the user doesn't have to remember to bring up the
-// backend stack separately. Idempotent: if the containers are
-// already running, `up -d` is a no-op.
+// server/ directory (where docker-compose.yml lives) so the user
+// doesn't have to remember to bring up the backend stack separately.
+// Idempotent: if the containers are already running, `up -d` is a
+// no-op.
 //
 // Best-effort by design. We don't block window creation on this
 // completing — the renderer's BackendClient + WakeWordClient both
@@ -15,8 +16,10 @@
 const { spawn } = require('child_process');
 const path = require('path');
 
+// client/electron/ -> repo root is two up, the compose stack lives in
+// server/ alongside the client/ tree.
 const PROJECT_ROOT =
-  path.resolve(__dirname, '..');
+  path.resolve(__dirname, '..', '..', 'server');
 
 function startBackendContainers() {
 

@@ -1,23 +1,29 @@
 # Persona Avatar — backend stack.
 #
-# MVP: one service (api). Sibling services (tts, rag, stt) will
-# be added as separate entries on this same compose file when
-# they become needed. Frontend runs OUTSIDE compose during dev
-# (Vite at :5173) and talks to backend via CORS-allowed WebSocket.
+# This is the separable backend unit: every server-side service lives
+# under server/ and is reachable only over the network (HTTP/WS). The
+# client (client/electron + client/frontend) runs outside compose and
+# talks to these services via CORS-allowed WebSocket/HTTP.
+#
+# `name:` pins the compose project so the named volumes (persona_data,
+# whisper_cache) stay stable regardless of the parent directory — a
+# requirement for the backend being relocatable on its own.
+
+name: persona
 
 services:
   api:
     build:
-      context: ./backend
+      context: ./api
       dockerfile: Dockerfile
     container_name: persona_api
     ports:
       - "8000:8000"
     env_file:
-      - ./backend/.env
+      - ./api/.env
     volumes:
       # mount source for live reload during dev. remove for prod.
-      - ./backend:/app
+      - ./api:/app
       # single source of truth for agent identity (name, personality,
       # user-facing strings). read-only so the backend treats it as
       # immutable config, not data.

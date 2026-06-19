@@ -9,28 +9,16 @@ const path = require('path');
 const { app } = require('electron');
 
 // ----------------------------------------------------------------------
-// Agent identity (single source of truth at config/agent.json).
+// Agent identity.
+//
+// The single source of truth for identity now lives with the backend
+// (server/config/agent.json), so the client no longer reads that file
+// directly — that decoupling is what keeps the backend separable. The
+// shell only needs the display name for the tray tooltip; it defaults
+// to 'Violet' and can be refreshed from the api identity endpoint later.
 // ----------------------------------------------------------------------
 
-let agentConfig = {
-  name: 'Violet',
-  userName: 'Hamza',
-};
-
-try {
-
-  agentConfig = require('../config/agent.json');
-
-} catch (e) {
-
-  console.warn(
-    '[shell] failed to load config/agent.json — using defaults:',
-    e.message
-  );
-
-}
-
-const AGENT_NAME = agentConfig.name || 'Violet';
+const AGENT_NAME = 'Violet';
 
 // ----------------------------------------------------------------------
 // Dev vs production.
