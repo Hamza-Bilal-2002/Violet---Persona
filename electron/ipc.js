@@ -142,6 +142,17 @@ function registerIpcHandlers() {
   // Settings: renderer reads saved settings on startup and writes
   // them when the user clicks "Save Settings" in the debug GUI.
 
+  // WhatsApp contact resolution — called before the confirmation card
+  // is shown so the renderer can display the real name + profile pic.
+
+  ipcMain.handle(
+    'persona:resolve-whatsapp-contact',
+    async (_event, to) => {
+      const { resolveContact } = require('./tools/whatsapp');
+      return resolveContact(to);
+    }
+  );
+
   ipcMain.handle('persona:get-settings', () => loadSettings());
 
   ipcMain.handle('persona:save-settings', (_event, data) => {

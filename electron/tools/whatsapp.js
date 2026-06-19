@@ -122,4 +122,42 @@ async function sendWhatsApp({ to, message }) {
   return { sent: true, to, message };
 }
 
-module.exports = { sendWhatsApp, init };
+// Resolve a contact by name or phone number without sending.
+// Returns { chatId, name, profilePicUrl } — used by the frontend
+// to render the confirmation card before the user approves the send.
+
+async function resolveContact(to) {
+  if (!to) throw new Error('resolveContact requires a "to" argument');
+
+  const client = await init();
+
+  if (/^[\d\s+\-()\\.]+$/.test(to.trim())) {
+    const digits = to.replace(/\D/g, '');
+    const chatId  = `${digits}@c.us`;
+    let name = to;
+    let profilePicUrl = null;
+    try {
+      const contact = await client.getContactById(chatId);
+      name = contact.pushname || contact.name || to;
+    } catch { /* unknown number — use raw input as name */ }
+    try { profilePicUrl = await client.getProfilePicUrl(chatId); } catch { /* no pic */ }
+    return { chatId, name, profilePicUrl };
+  }
+
+  const contacts = await client.getContacts();
+  const needle   = to.toLowerCase();
+  const match    = contacts.find(
+    (c) => c.name && c.name.toLowerCase().includes(needle)
+  );
+  if (!match) {
+    throw new Error(
+      `WhatsApp contact not found: "${to}". ` +
+      `Try their phone number (e.g. +923001234567) instead.`
+    );
+  }
+  let profilePicUrl = null;
+  try { profilePicUrl = await client.getProfilePicUrl(match.id._serialized); } catch { /* no pic */ }
+  return { chatId: match.id._serialized, name: match.name || to, profilePicUrl };
+}
+
+module.exports = { sendWhatsApp, resolveContact, init };

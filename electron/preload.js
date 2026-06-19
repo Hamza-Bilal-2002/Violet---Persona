@@ -175,6 +175,16 @@ contextBridge.exposeInMainWorld(
     // failure. BackendClient relays this from tool_call frames the
     // backend forwards out of Gemini's function-calling loop.
 
+    // Resolve a WhatsApp contact by name or phone number.
+    // Returns { chatId, name, profilePicUrl } for the confirmation card.
+    // Called before _enterConfirmationMode so the real name + photo are
+    // shown before the user confirms the send.
+
+    resolveWhatsAppContact: (to) => ipcRenderer.invoke(
+      'persona:resolve-whatsapp-contact',
+      to
+    ),
+
     executeTool: (name, args) => {
 
       return ipcRenderer.invoke(

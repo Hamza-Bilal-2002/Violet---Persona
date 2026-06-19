@@ -563,10 +563,14 @@ export class AvatarRuntime {
         // Confirmation handler for tools like send_whatsapp.
         // Shows the confirmation UI, speaks the prompt, and registers
         // a voice interceptor so the user can also say yes/no/send it.
+        // Async so we can resolve the contact before showing the card.
 
-        onConfirmationRequired: ({ name, args, resolve, reject }) => {
+        onConfirmationRequired: async ({ name, args, resolve, reject }) => {
 
-          this._enterConfirmationMode(args, resolve, reject);
+          // Show the card immediately with a loading state (null contact),
+          // then update it with real info once the IPC resolves.
+
+          this._enterConfirmationMode(args, resolve, reject, null);
 
           // Voice path: next voice/text input goes to the interceptor
           // instead of the backend WebSocket.
@@ -611,6 +615,31 @@ export class AvatarRuntime {
             animation: 'talking',
             priority:  2,
           });
+
+          // Resolve contact in the background and update the card with
+          // the real name + profile picture once available.
+          if (
+            window.personaShell &&
+            typeof window.personaShell.resolveWhatsAppContact === 'function'
+          ) {
+            try {
+              const resolved = await Promise.race([
+                window.personaShell.resolveWhatsAppContact(args.to),
+                new Promise((_, rej) =>
+                  setTimeout(() => rej(new Error('timeout')), 5000)
+                ),
+              ]);
+              // Only update if the user hasn't already confirmed/cancelled.
+              if (this._confirmationPending && this._confirmLabel) {
+                this._confirmLabel.innerHTML = '';
+                this._confirmLabel.appendChild(
+                  this._buildConfirmCard(resolved, args)
+                );
+              }
+            } catch {
+              // Keep the fallback card — non-fatal.
+            }
+          }
 
         },
 
@@ -840,27 +869,18 @@ export class AvatarRuntime {
 
     this._electronTextInput = input;
 
-    // Confirmation label — floats above the text input during
-    // send_whatsapp confirmation, showing the pending message.
+    // Confirmation card container — floats above the text input during
+    // send_whatsapp confirmation. Plain position anchor; the visual
+    // card is built by _buildConfirmCard and injected at runtime.
 
     const confirmLabel = document.createElement('div');
     confirmLabel.className = 'persona-confirm-label';
 
     Object.assign(confirmLabel.style, {
-      position:       'fixed',
-      width:          '256px',
-      padding:        '5px 14px',
-      borderRadius:   '10px',
-      background:     'rgba(255, 200, 60, 0.12)',
-      border:         '1px solid rgba(255, 200, 60, 0.4)',
-      color:          'rgba(255, 220, 80, 0.92)',
-      fontSize:       '11px',
-      lineHeight:     '1.5',
-      wordBreak:      'break-word',
-      display:        'none',
-      zIndex:         '999999',
-      boxSizing:      'border-box',
-      pointerEvents:  'none',
+      position:      'fixed',
+      display:       'none',
+      zIndex:        '999999',
+      pointerEvents: 'none',
     });
 
     this._confirmLabel = confirmLabel;
@@ -1005,25 +1025,25 @@ export class AvatarRuntime {
 
   // ----------------------------------------------------------------
   // Confirmation mode — entered when a send_whatsapp tool call is
-  // intercepted. Changes input styling and shows the confirm label.
+  // intercepted. Renders the glass confirmation card above the input.
   // ----------------------------------------------------------------
 
-  _enterConfirmationMode(args, resolve, reject) {
+  _enterConfirmationMode(args, resolve, reject, resolvedContact) {
 
     const input = this._electronTextInput;
     if (!input) return;
 
     this._confirmationPending = { args, resolve, reject };
 
-    input.placeholder = 'Enter ↵ to send  ·  Esc to cancel  ·  or type a different message';
-    input.style.border = '1px solid rgba(255, 200, 60, 0.55)';
+    input.placeholder = 'Enter ↵ to send  ·  Esc to cancel  ·  or retype the message';
+    input.style.border = '1px solid rgba(255,200,60,0.55)';
     input.value = '';
 
     if (this._confirmLabel) {
-      const preview = args.message && args.message.length > 60
-        ? args.message.slice(0, 60) + '…'
-        : (args.message || '');
-      this._confirmLabel.textContent = `Send to ${args.to}: "${preview}"`;
+      this._confirmLabel.innerHTML = '';
+      this._confirmLabel.appendChild(
+        this._buildConfirmCard(resolvedContact, args)
+      );
       this._confirmLabel.style.display = 'block';
     }
 
@@ -1044,7 +1064,191 @@ export class AvatarRuntime {
 
     if (this._confirmLabel) {
       this._confirmLabel.style.display = 'none';
+      this._confirmLabel.innerHTML = '';
     }
+
+  }
+
+  // ----------------------------------------------------------------
+  // Confirmation card — dark-glass card matching the input pill
+  // aesthetic. Profile pic (or initials), contact name, message
+  // preview, and a WhatsApp indicator dot.
+  // ----------------------------------------------------------------
+
+  _buildConfirmCard(resolvedContact, args) {
+
+    const name          = resolvedContact ? resolvedContact.name : args.to;
+    const profilePicUrl = resolvedContact ? resolvedContact.profilePicUrl : null;
+    const isLoading     = !resolvedContact;
+
+    const card = document.createElement('div');
+    Object.assign(card.style, {
+      display:              'flex',
+      alignItems:           'center',
+      gap:                  '10px',
+      width:                '256px',
+      padding:              '9px 12px',
+      boxSizing:            'border-box',
+      background:           'rgba(0,0,0,0.38)',
+      backdropFilter:       'blur(16px)',
+      webkitBackdropFilter: 'blur(16px)',
+      border:               '1px solid rgba(255,200,60,0.28)',
+      borderRadius:         '14px',
+      boxShadow:            '0 0 0 1px rgba(255,200,60,0.07), 0 8px 24px rgba(0,0,0,0.5)',
+      fontFamily:           'system-ui, -apple-system, sans-serif',
+      opacity:              '0',
+      transform:            'translateY(5px)',
+    });
+
+    // Slide-in on next frame
+    requestAnimationFrame(() => {
+      card.style.transition = 'opacity 0.18s ease, transform 0.18s cubic-bezier(0.16,1,0.3,1)';
+      card.style.opacity    = '1';
+      card.style.transform  = 'translateY(0)';
+    });
+
+    // Avatar
+    card.appendChild(this._buildAvatar(name, profilePicUrl, isLoading));
+
+    // Text block
+    const textBlock = document.createElement('div');
+    Object.assign(textBlock.style, {
+      display:       'flex',
+      flexDirection: 'column',
+      gap:           '2px',
+      flex:          '1',
+      overflow:      'hidden',
+      minWidth:      '0',
+    });
+
+    const nameEl = document.createElement('div');
+    nameEl.textContent = isLoading ? 'Resolving…' : name;
+    Object.assign(nameEl.style, {
+      fontSize:      '12px',
+      fontWeight:    '500',
+      color:         isLoading ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.92)',
+      whiteSpace:    'nowrap',
+      overflow:      'hidden',
+      textOverflow:  'ellipsis',
+      letterSpacing: '0.01em',
+    });
+
+    const msgEl = document.createElement('div');
+    const preview = (args.message || '').length > 36
+      ? args.message.slice(0, 36) + '…'
+      : (args.message || '');
+    msgEl.textContent = `"${preview}"`;
+    Object.assign(msgEl.style, {
+      fontSize:     '11px',
+      fontWeight:   '400',
+      color:        'rgba(255,255,255,0.42)',
+      whiteSpace:   'nowrap',
+      overflow:     'hidden',
+      textOverflow: 'ellipsis',
+    });
+
+    textBlock.appendChild(nameEl);
+    textBlock.appendChild(msgEl);
+    card.appendChild(textBlock);
+
+    // WhatsApp indicator — green glow dot + "WA" micro-label
+    const waWrap = document.createElement('div');
+    Object.assign(waWrap.style, {
+      display:       'flex',
+      flexDirection: 'column',
+      alignItems:    'center',
+      gap:           '3px',
+      flexShrink:    '0',
+    });
+
+    const dot = document.createElement('div');
+    Object.assign(dot.style, {
+      width:        '6px',
+      height:       '6px',
+      borderRadius: '50%',
+      background:   '#25D366',
+      boxShadow:    '0 0 5px rgba(37,211,102,0.6)',
+    });
+
+    const waLabel = document.createElement('span');
+    waLabel.textContent = 'WA';
+    Object.assign(waLabel.style, {
+      fontSize:      '8px',
+      fontWeight:    '600',
+      color:         'rgba(255,255,255,0.2)',
+      letterSpacing: '0.04em',
+    });
+
+    waWrap.appendChild(dot);
+    waWrap.appendChild(waLabel);
+    card.appendChild(waWrap);
+
+    return card;
+
+  }
+
+  _buildAvatar(name, profilePicUrl, isLoading) {
+
+    const wrap = document.createElement('div');
+    Object.assign(wrap.style, {
+      width:          '32px',
+      height:         '32px',
+      borderRadius:   '50%',
+      flexShrink:     '0',
+      overflow:       'hidden',
+      border:         isLoading
+                        ? '1.5px solid rgba(255,255,255,0.1)'
+                        : '1.5px solid rgba(255,200,60,0.4)',
+      background:     isLoading
+                        ? 'rgba(255,255,255,0.05)'
+                        : 'rgba(255,200,60,0.1)',
+      display:        'flex',
+      alignItems:     'center',
+      justifyContent: 'center',
+      boxSizing:      'border-box',
+    });
+
+    if (isLoading) return wrap;
+
+    if (profilePicUrl) {
+      const img = document.createElement('img');
+      img.src = profilePicUrl;
+      Object.assign(img.style, {
+        width:     '100%',
+        height:    '100%',
+        objectFit: 'cover',
+        display:   'block',
+      });
+      img.onerror = () => {
+        wrap.removeChild(img);
+        wrap.appendChild(this._buildInitials(name));
+      };
+      wrap.appendChild(img);
+    } else {
+      wrap.appendChild(this._buildInitials(name));
+    }
+
+    return wrap;
+
+  }
+
+  _buildInitials(name) {
+
+    const span  = document.createElement('span');
+    const parts = (name || '?').trim().split(/\s+/);
+    span.textContent = parts.length > 1
+      ? (parts[0][0] + parts[1][0]).toUpperCase()
+      : name.slice(0, 2).toUpperCase();
+
+    Object.assign(span.style, {
+      fontSize:   '11px',
+      fontWeight: '600',
+      color:      'rgba(255,200,60,0.88)',
+      lineHeight: '1',
+      userSelect: 'none',
+    });
+
+    return span;
 
   }
 
