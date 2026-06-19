@@ -29,8 +29,14 @@ from '../config/animations.js';
 import { BackendClient }
 from '../backend/BackendClient.js';
 
+import { FallbackChat }
+from '../backend/FallbackChat.js';
+
 import { mountVoiceIndicator }
 from '../ui/voiceIndicator.js';
+
+import { mountModeNotifier }
+from '../ui/modeNotifier.js';
 
 import { VoiceFlow }
 from '../voice/VoiceFlow.js';
@@ -529,6 +535,76 @@ export class AvatarRuntime {
     this.voiceIndicator =
       mountVoiceIndicator();
 
+    // Mode notifier — surfaces full <-> basic (GPT fallback) transitions
+    // and fallback errors. Mounted before BackendClient so the very first
+    // mode change has a surface to render against.
+
+    this.modeNotifier =
+      mountModeNotifier();
+
+    // ======================
+    // PERSONALITY HANDLERS (shared)
+    // ======================
+    //
+    // Both the backend path and the basic-mode fallback emit personality
+    // frames; they go through the same two handlers so a switch updates
+    // the TTS voice + tray identically no matter which path is active.
+
+    const handlePersonality = (p) => {
+
+      if (this.ttsClient && typeof this.ttsClient.setVoice === 'function') {
+        this.ttsClient.setVoice(p.voice);
+      }
+
+      if (
+        window.personaShell &&
+        typeof window.personaShell.notifyPersonality === 'function'
+      ) {
+        window.personaShell.notifyPersonality(p.id);
+      }
+
+    };
+
+    const handlePersonalities = (msg) => {
+
+      if (
+        window.personaShell &&
+        typeof window.personaShell.notifyPersonalities === 'function'
+      ) {
+        window.personaShell.notifyPersonalities(msg);
+      }
+
+    };
+
+    // ======================
+    // FALLBACK CHAT (Tier-2, basic mode)
+    // ======================
+    //
+    // Talks straight to GPT (via the Electron main process) when the
+    // backend is unreachable. No tools, no RAG, no memory — bundled
+    // limited personalities + a small basic profile only.
+
+    this.fallbackChat =
+      new FallbackChat({
+
+        dialogueManager:
+          this.dialogueManager,
+
+        ttsClient:
+          this.ttsClient,
+
+        onNotify: (message, opts) => {
+          this.modeNotifier.notify(message, opts);
+        },
+
+        onPersonality:
+          handlePersonality,
+
+        onPersonalities:
+          handlePersonalities,
+
+      });
+
     // ======================
     // BACKEND
     // ======================
@@ -682,31 +758,37 @@ export class AvatarRuntime {
 
         // Active personality changed: switch the TTS voice so she sounds
         // like the new personality, and tell the Electron shell so the
-        // tray's radio marker stays in sync.
-        onPersonality: (p) => {
-
-          if (this.ttsClient && typeof this.ttsClient.setVoice === 'function') {
-            this.ttsClient.setVoice(p.voice);
-          }
-
-          if (
-            window.personaShell &&
-            typeof window.personaShell.notifyPersonality === 'function'
-          ) {
-            window.personaShell.notifyPersonality(p.id);
-          }
-
-        },
+        // tray's radio marker stays in sync. Shared with the fallback
+        // path so a switch behaves identically in either mode.
+        onPersonality:
+          handlePersonality,
 
         // Full roster + active id (sent on connect). Forward to the
         // shell so the tray can build its Personality submenu.
-        onPersonalities: (msg) => {
+        onPersonalities:
+          handlePersonalities,
 
-          if (
-            window.personaShell &&
-            typeof window.personaShell.notifyPersonalities === 'function'
-          ) {
-            window.personaShell.notifyPersonalities(msg);
+        // Tier-2 fallback: routed to when the backend can't be reached.
+        fallbackChat:
+          this.fallbackChat,
+
+        // full <-> basic mode transitions. Drive the mode notifier (and
+        // its persistent basic-mode pill); the actual roster/voice swap
+        // is handled inside fallbackChat.activate().
+        onModeChange: (mode, reason) => {
+
+          this.modeNotifier.setMode(mode);
+
+          if (mode === 'basic') {
+            this.modeNotifier.notify(
+              'Backend offline — switched to basic GPT mode. Memory and tools are paused.',
+              { kind: 'warn' }
+            );
+          } else {
+            this.modeNotifier.notify(
+              'Backend online — full mode restored.',
+              { kind: 'ok' }
+            );
           }
 
         },

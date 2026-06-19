@@ -241,5 +241,19 @@ contextBridge.exposeInMainWorld(
 
     },
 
+    // ── Tier-2 client fallback (basic mode) ──────────────────────────
+    //
+    // When the backend is unreachable, BackendClient routes user turns
+    // to a direct GPT call run in the main process (key in userData).
+    // fallbackChat resolves to { text } or { error }.
+
+    fallbackChat: (payload) =>
+      ipcRenderer.invoke('persona:fallback-chat', payload),
+
+    // Returns { available: boolean } — whether a GPT key is configured,
+    // so the renderer can warn before basic mode is ever needed.
+    isFallbackAvailable: () =>
+      ipcRenderer.invoke('persona:fallback-available'),
+
   }
 );

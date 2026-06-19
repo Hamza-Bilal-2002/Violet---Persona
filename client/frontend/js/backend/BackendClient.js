@@ -30,6 +30,16 @@ const RECONNECT_BASE_MS =
 const RECONNECT_MAX_MS =
   30000;
 
+// After this many consecutive failed reconnect attempts, give up on the
+// backend for now and fall back to client-side basic mode (GPT direct).
+// With exponential backoff (1s, 2s, 4s…) attempt 3 lands ~3s after the
+// backend goes unreachable — long enough to ride out a brief blip, short
+// enough that a real outage drops to basic mode quickly. Background
+// reconnect keeps running, so the moment the backend returns we restore
+// full mode.
+const FALLBACK_AFTER_ATTEMPTS =
+  3;
+
 // Tools that must pause for user confirmation before executing.
 // BackendClient intercepts these and calls onConfirmationRequired
 // instead of immediately firing shell.executeTool.
@@ -46,6 +56,8 @@ export class BackendClient {
     onConfirmationRequired,
     onPersonality,
     onPersonalities,
+    fallbackChat,
+    onModeChange,
   }) {
 
     this.url =
@@ -57,6 +69,24 @@ export class BackendClient {
     this.onStatusChange =
       onStatusChange ||
       (() => {});
+
+    // Tier-2 client fallback. When the backend can't be reached, user
+    // input is routed to this FallbackChat (GPT direct, basic mode)
+    // instead of the WebSocket. Optional — absent in plain-browser dev,
+    // in which case we never leave 'full' mode (input just queues).
+    this.fallbackChat =
+      fallbackChat || null;
+
+    // onModeChange(mode, reason): 'full' (backend driving) <-> 'basic'
+    // (client GPT fallback). Drives the mode notifier + tray roster swap.
+    this.onModeChange =
+      onModeChange || (() => {});
+
+    // Current operating mode. Starts optimistic ('full'); flips to
+    // 'basic' after FALLBACK_AFTER_ATTEMPTS failed reconnects and back to
+    // 'full' on the next successful open.
+    this.mode =
+      'full';
 
     // Personality frames from the backend. onPersonality fires when the
     // active personality changes (carries voice + default_emotion);
@@ -163,6 +193,14 @@ export class BackendClient {
         this._reconnectAttempt =
           0;
 
+        // If we'd dropped to basic mode while the backend was down,
+        // restore full mode now — BEFORE emitting 'connected' so the
+        // status surfaces normally (basic mode suppresses connecting/
+        // reconnecting status). The backend re-sends its personality
+        // roster on connect, so the tray returns to the full set on its
+        // own.
+        this._exitBasicMode();
+
         this._setStatus('connected');
 
         // flush anything the user typed
@@ -261,6 +299,13 @@ export class BackendClient {
       `(attempt ${attemptNumber})`
     );
 
+    // Enough failures to call it: drop to client-side basic mode so the
+    // user can still talk to Violet while the background reconnect keeps
+    // trying. No-op once already basic, or when no fallback is wired.
+    if (attemptNumber >= FALLBACK_AFTER_ATTEMPTS) {
+      this._enterBasicMode('Backend unreachable');
+    }
+
     this._setStatus('reconnecting');
 
     this._reconnectTimer =
@@ -295,6 +340,97 @@ export class BackendClient {
   }
 
   // ======================
+  // MODE (full <-> basic)
+  // ======================
+
+  _enterBasicMode(reason) {
+
+    // Need a fallback to fall back to; without one (browser dev) we just
+    // keep retrying in 'full' mode.
+    if (this.mode === 'basic' || !this.fallbackChat) {
+
+      return;
+
+    }
+
+    this.mode =
+      'basic';
+
+    console.warn(
+      `BackendClient: entering basic mode (${reason})`
+    );
+
+    // Prime the fallback (voice + tray roster) then announce the switch.
+    try {
+
+      this.fallbackChat.activate();
+
+    } catch (err) {
+
+      console.error(
+        'BackendClient: fallbackChat.activate threw',
+        err
+      );
+
+    }
+
+    try {
+
+      this.onModeChange('basic', reason);
+
+    } catch (err) {
+
+      console.error(
+        'BackendClient: onModeChange(basic) threw',
+        err
+      );
+
+    }
+
+  }
+
+  _exitBasicMode() {
+
+    if (this.mode !== 'basic') {
+
+      return;
+
+    }
+
+    this.mode =
+      'full';
+
+    console.log(
+      'BackendClient: leaving basic mode — full mode restored'
+    );
+
+    // Clear the ephemeral basic-mode history so a future outage starts
+    // clean rather than resuming a stale offline conversation.
+    if (
+      this.fallbackChat &&
+      typeof this.fallbackChat.reset === 'function'
+    ) {
+
+      this.fallbackChat.reset();
+
+    }
+
+    try {
+
+      this.onModeChange('full', 'Backend reconnected');
+
+    } catch (err) {
+
+      console.error(
+        'BackendClient: onModeChange(full) threw',
+        err
+      );
+
+    }
+
+  }
+
+  // ======================
   // SEND USER MESSAGE
   // ======================
 
@@ -314,6 +450,15 @@ export class BackendClient {
   // session prompt and replies with a `personality` frame + a spoken
   // confirmation. No-op if the socket isn't open.
   setPersonality(id) {
+
+    // Basic mode: switch the bundled personality locally (no backend).
+    if (this.mode === 'basic' && this.fallbackChat) {
+
+      this.fallbackChat.setPersonality(id);
+
+      return;
+
+    }
 
     if (
       this.ws &&
@@ -337,6 +482,18 @@ export class BackendClient {
       (text || '').trim();
 
     if (!trimmed) {
+
+      return;
+
+    }
+
+    // Basic mode: the backend is unreachable, so the message goes to the
+    // client-side GPT fallback instead of the WebSocket. Checked before
+    // the confirmation interceptor — confirmations only exist in full
+    // mode (they're backend-tool driven).
+    if (this.mode === 'basic' && this.fallbackChat) {
+
+      this.fallbackChat.send(trimmed);
 
       return;
 
@@ -630,6 +787,19 @@ export class BackendClient {
   _setStatus(status) {
 
     this.status = status;
+
+    // While basic mode is handling input, the background reconnect's
+    // 'connecting'/'reconnecting' churn would wrongly show a "can't reach
+    // backend" overlay over a working conversation. Suppress it — the
+    // mode notifier's basic-mode pill already communicates the state.
+    if (
+      this.mode === 'basic' &&
+      (status === 'connecting' || status === 'reconnecting')
+    ) {
+
+      return;
+
+    }
 
     try {
 

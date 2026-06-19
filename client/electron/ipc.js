@@ -170,6 +170,29 @@ function registerIpcHandlers() {
     }
   );
 
+  // Tier-2 client fallback (basic mode): the renderer relays a GPT chat
+  // turn here when the backend is unreachable. The key lives in userData
+  // (main process only) — see fallbackChat.js. Returns {text} or {error}.
+
+  ipcMain.handle(
+    'persona:fallback-chat',
+    async (_event, payload) => {
+      const { runFallbackChat } = require('./fallbackChat');
+      return runFallbackChat(payload || {});
+    }
+  );
+
+  // Whether a GPT key is configured — lets the renderer warn up front if
+  // basic mode wouldn't work.
+
+  ipcMain.handle(
+    'persona:fallback-available',
+    () => {
+      const { hasApiKey } = require('./fallbackChat');
+      return { available: hasApiKey() };
+    }
+  );
+
   ipcMain.handle('persona:get-settings', () => loadSettings());
 
   ipcMain.handle('persona:save-settings', (_event, data) => {
