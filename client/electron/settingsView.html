@@ -2,16 +2,23 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>Offline Mode Settings</title>
+<title>Settings</title>
 <style>
   :root {
-    --bg:     #0d0d0f;
-    --panel:  rgba(255,255,255,0.035);
-    --border: rgba(255,255,255,0.08);
-    --text:   rgba(255,255,255,0.92);
-    --muted:  rgba(255,255,255,0.4);
-    --faint:  rgba(255,255,255,0.18);
-    --amber:  #ffc83c;
+    --bg:        #0c0c0e;
+    --rail:      rgba(255,255,255,0.022);
+    --panel:     rgba(255,255,255,0.035);
+    --panel-2:   rgba(255,255,255,0.055);
+    --border:    rgba(255,255,255,0.08);
+    --border-2:  rgba(255,255,255,0.12);
+    --text:      rgba(255,255,255,0.92);
+    --muted:     rgba(255,255,255,0.45);
+    --faint:     rgba(255,255,255,0.26);
+    --amber:     #ffc83c;
+    --amber-dim: rgba(255,200,60,0.14);
+    --green:     #4ade80;
+    --red:       #f38ba8;
+    --blue:      #74c7ec;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { height: 100%; }
@@ -26,328 +33,510 @@
     user-select: none;
   }
 
-  /* Title bar */
+  /* ── Title bar ───────────────────────────────────────────────── */
   .titlebar {
     -webkit-app-region: drag;
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 13px 14px 12px;
-    border-bottom: 1px solid var(--border);
+    padding: 12px 14px;
     flex-shrink: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .titlebar .brand {
+    display: flex; align-items: baseline; gap: 8px;
   }
   .titlebar h1 {
-    font-size: 13px;
-    font-weight: 600;
-    letter-spacing: 0.02em;
+    font-size: 13px; font-weight: 600; letter-spacing: 0.04em;
   }
-  .titlebar .subtitle {
-    font-size: 11px;
-    color: var(--muted);
-  }
+  .titlebar .hint { font-size: 11px; color: var(--faint); }
   .spacer { flex: 1; }
   .x {
     -webkit-app-region: no-drag;
-    width: 22px; height: 22px;
-    border-radius: 6px;
+    width: 24px; height: 24px; border-radius: 7px;
     display: flex; align-items: center; justify-content: center;
-    color: var(--muted);
-    cursor: pointer;
-    font-size: 15px;
-    line-height: 1;
+    color: var(--muted); cursor: pointer; font-size: 14px; line-height: 1;
+    transition: background 0.12s, color 0.12s;
   }
-  .x:hover { background: rgba(255,80,80,0.18); color: #ff8080; }
+  .x:hover { background: rgba(255,80,80,0.18); color: #ff8a8a; }
 
-  /* Content */
+  /* ── Body: rail + content ────────────────────────────────────── */
+  .body { flex: 1; display: flex; min-height: 0; }
+
+  .rail {
+    width: 168px; flex-shrink: 0;
+    background: var(--rail);
+    border-right: 1px solid var(--border);
+    padding: 12px 10px;
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .nav {
+    position: relative;
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 11px; border-radius: 9px;
+    color: var(--muted); cursor: pointer;
+    font-size: 12.5px; font-weight: 500;
+    transition: background 0.12s, color 0.12s;
+  }
+  .nav:hover { background: var(--panel); color: var(--text); }
+  .nav.active { background: var(--amber-dim); color: var(--text); }
+  .nav.active::before {
+    content: ''; position: absolute; left: -10px; top: 50%;
+    transform: translateY(-50%);
+    width: 3px; height: 18px; border-radius: 2px; background: var(--amber);
+  }
+  .nav .ico { width: 16px; text-align: center; font-size: 13px; opacity: 0.9; }
+
   .content {
-    flex: 1;
-    padding: 18px 16px 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 20px;
-    overflow-y: auto;
+    flex: 1; min-width: 0;
+    padding: 20px 22px; overflow-y: auto;
   }
+  .panel { display: none; flex-direction: column; gap: 14px; }
+  .panel.active { display: flex; animation: fade 0.18s ease; }
+  @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 
-  /* Section */
-  .section-label {
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--muted);
-    margin-bottom: 8px;
+  .panel-head { margin-bottom: 2px; }
+  .panel-head h2 {
+    font-size: 15px; font-weight: 600; letter-spacing: 0.01em;
   }
+  .panel-head p { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
 
-  /* Provider radios */
-  .providers {
-    display: flex;
-    gap: 8px;
-  }
-  .provider-card {
-    flex: 1;
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 10px 12px;
-    cursor: pointer;
-    background: var(--panel);
-    transition: border-color 0.15s, background 0.15s;
-    display: flex;
-    align-items: center;
-    gap: 9px;
-  }
-  .provider-card:hover { background: rgba(255,255,255,0.055); }
-  .provider-card.selected {
-    border-color: var(--amber);
-    background: rgba(255,200,60,0.08);
-  }
-  .provider-card input[type="radio"] {
-    accent-color: var(--amber);
-    width: 14px; height: 14px;
-    cursor: pointer;
-    flex-shrink: 0;
-  }
-  .provider-info {}
-  .provider-name {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--text);
-  }
-  .provider-model {
-    font-size: 11px;
-    color: var(--muted);
-    margin-top: 1px;
-  }
-
-  /* Key inputs */
-  .key-row {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .key-label {
-    font-size: 11px;
-    color: var(--muted);
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .key-label .dot {
-    width: 6px; height: 6px;
-    border-radius: 50%;
-    flex-shrink: 0;
-  }
-  .dot-openai { background: #74c7ec; }
-  .dot-gemini { background: #a6e3a1; }
-  .key-input-wrap {
-    display: flex;
-    align-items: center;
-    gap: 0;
+  /* ── Cards / rows ────────────────────────────────────────────── */
+  .card {
     background: var(--panel);
     border: 1px solid var(--border);
-    border-radius: 9px;
-    overflow: hidden;
-    transition: border-color 0.15s;
+    border-radius: 12px;
+    padding: 13px 15px;
   }
-  .key-input-wrap:focus-within { border-color: rgba(255,200,60,0.4); }
-  .key-input-wrap input {
-    flex: 1;
-    background: transparent;
-    border: none;
-    outline: none;
-    padding: 8px 11px;
-    color: var(--text);
-    font-size: 12px;
-    font-family: 'Consolas', 'SF Mono', monospace;
-    min-width: 0;
+  .row {
+    display: flex; align-items: center; gap: 14px;
   }
-  .key-input-wrap input::placeholder { color: var(--faint); font-family: inherit; }
-  .reveal {
-    -webkit-app-region: no-drag;
-    padding: 0 10px;
-    height: 100%;
-    background: transparent;
-    border: none;
-    color: var(--muted);
-    cursor: pointer;
-    font-size: 14px;
-    display: flex; align-items: center;
-    transition: color 0.12s;
-  }
-  .reveal:hover { color: var(--text); }
+  .row + .sub { margin-top: 11px; padding-top: 11px; border-top: 1px solid var(--border); }
+  .row .grow { flex: 1; min-width: 0; }
+  .row .name { font-size: 13px; font-weight: 550; }
+  .row .desc { font-size: 11.5px; color: var(--muted); margin-top: 2px; line-height: 1.35; }
 
-  /* Status line */
-  .status {
-    font-size: 11px;
-    color: var(--muted);
-    min-height: 14px;
-    text-align: center;
-  }
-  .status.ok    { color: #4ade80; }
-  .status.error { color: #f38ba8; }
+  .sub { display: flex; align-items: center; gap: 10px; }
+  .sub .label { font-size: 11.5px; color: var(--muted); flex: 1; }
 
-  /* Footer */
-  .footer {
-    padding: 0 16px 16px;
-    display: flex;
-    gap: 8px;
-    justify-content: flex-end;
-    flex-shrink: 0;
+  /* ── Toggle switch ───────────────────────────────────────────── */
+  .switch { position: relative; width: 38px; height: 22px; flex-shrink: 0; cursor: pointer; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .track {
+    position: absolute; inset: 0; border-radius: 999px;
+    background: rgba(255,255,255,0.12);
+    transition: background 0.18s;
   }
+  .track::before {
+    content: ''; position: absolute; left: 3px; top: 3px;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: #fff; transition: transform 0.18s;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+  }
+  .switch input:checked + .track { background: var(--amber); }
+  .switch input:checked + .track::before { transform: translateX(16px); }
+  .switch.sm { width: 32px; height: 18px; }
+  .switch.sm .track::before { width: 13px; height: 13px; }
+  .switch.sm input:checked + .track::before { transform: translateX(14px); }
+
+  /* ── Buttons ─────────────────────────────────────────────────── */
   button {
     -webkit-app-region: no-drag;
-    padding: 7px 18px;
-    border-radius: 8px;
-    border: 1px solid var(--border);
-    font-size: 12px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: background 0.13s, border-color 0.13s;
+    font-family: inherit; font-size: 12px; font-weight: 550;
+    padding: 8px 16px; border-radius: 9px;
+    border: 1px solid var(--border-2);
+    background: var(--panel-2); color: var(--text);
+    cursor: pointer; transition: background 0.12s, border-color 0.12s, opacity 0.12s;
   }
-  .btn-cancel {
-    background: var(--panel);
-    color: var(--muted);
-  }
-  .btn-cancel:hover { background: rgba(255,255,255,0.06); color: var(--text); }
-  .btn-save {
-    background: var(--amber);
-    color: #0d0d0f;
-    border-color: var(--amber);
-  }
-  .btn-save:hover { background: #ffd966; border-color: #ffd966; }
-  .btn-save:disabled { opacity: 0.5; cursor: default; }
+  button:hover { background: rgba(255,255,255,0.09); }
+  button.primary { background: var(--amber); color: #0c0c0e; border-color: var(--amber); }
+  button.primary:hover { background: #ffd45e; border-color: #ffd45e; }
+  button.danger { color: var(--red); border-color: rgba(243,139,168,0.3); }
+  button.danger:hover { background: rgba(243,139,168,0.12); }
+  button:disabled { opacity: 0.45; cursor: default; }
 
-  ::-webkit-scrollbar { width: 4px; }
+  /* ── Status dot ──────────────────────────────────────────────── */
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .dot.on  { background: var(--green); box-shadow: 0 0 6px rgba(74,222,128,0.6); }
+  .dot.mid { background: var(--amber); box-shadow: 0 0 6px rgba(255,200,60,0.6); }
+  .dot.off { background: rgba(255,255,255,0.22); }
+  .status-text { font-size: 11.5px; color: var(--muted); }
+
+  /* ── Provider cards ──────────────────────────────────────────── */
+  .providers { display: flex; gap: 9px; }
+  .provider {
+    flex: 1; display: flex; align-items: center; gap: 9px;
+    border: 1px solid var(--border); border-radius: 11px;
+    padding: 11px 12px; cursor: pointer; background: var(--panel);
+    transition: border-color 0.14s, background 0.14s;
+  }
+  .provider:hover { background: var(--panel-2); }
+  .provider.selected { border-color: var(--amber); background: var(--amber-dim); }
+  .provider input { accent-color: var(--amber); width: 14px; height: 14px; cursor: pointer; }
+  .provider .pname { font-size: 12.5px; font-weight: 600; }
+  .provider .pmodel { font-size: 11px; color: var(--muted); margin-top: 1px; }
+
+  /* ── Key inputs ──────────────────────────────────────────────── */
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field .flabel { font-size: 11.5px; color: var(--muted); display: flex; align-items: center; gap: 7px; }
+  .field .kdot { width: 6px; height: 6px; border-radius: 50%; }
+  .inputwrap {
+    display: flex; align-items: stretch;
+    background: rgba(0,0,0,0.25); border: 1px solid var(--border);
+    border-radius: 9px; overflow: hidden; transition: border-color 0.14s;
+  }
+  .inputwrap:focus-within { border-color: rgba(255,200,60,0.45); }
+  .inputwrap input {
+    flex: 1; min-width: 0; background: transparent; border: none; outline: none;
+    padding: 8px 11px; color: var(--text); font-size: 12px;
+    font-family: 'Consolas', 'SF Mono', monospace;
+  }
+  .inputwrap input::placeholder { color: var(--faint); }
+  .reveal {
+    -webkit-app-region: no-drag;
+    padding: 0 11px; background: transparent; border: none;
+    border-left: 1px solid var(--border); color: var(--muted);
+    cursor: pointer; font-size: 13px;
+  }
+  .reveal:hover { color: var(--text); background: transparent; }
+
+  .save-row { display: flex; align-items: center; gap: 12px; margin-top: 2px; }
+  .save-row .msg { font-size: 11.5px; color: var(--muted); }
+  .save-row .msg.ok { color: var(--green); }
+  .save-row .msg.err { color: var(--red); }
+
+  .stack { display: flex; flex-direction: column; gap: 11px; }
+  .btn-row { display: flex; gap: 9px; }
+
+  ::-webkit-scrollbar { width: 5px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
 </style>
 </head>
 <body>
 
 <div class="titlebar">
-  <h1>Offline Mode</h1>
-  <span class="subtitle">used when the backend is unreachable</span>
+  <div class="brand">
+    <h1>SETTINGS</h1>
+    <span class="hint">Violet</span>
+  </div>
   <div class="spacer"></div>
   <div class="x" id="closeBtn">✕</div>
 </div>
 
-<div class="content">
+<div class="body">
 
-  <!-- Provider -->
-  <div>
-    <div class="section-label">Cloud Provider</div>
-    <div class="providers">
-      <label class="provider-card" id="card-openai">
-        <input type="radio" name="provider" value="openai">
-        <div class="provider-info">
-          <div class="provider-name">OpenAI</div>
-          <div class="provider-model">gpt-4o-mini</div>
-        </div>
-      </label>
-      <label class="provider-card" id="card-gemini">
-        <input type="radio" name="provider" value="gemini">
-        <div class="provider-info">
-          <div class="provider-name">Gemini</div>
-          <div class="provider-model">2.5 Flash</div>
-        </div>
-      </label>
-    </div>
-  </div>
+  <!-- Sidebar -->
+  <nav class="rail">
+    <div class="nav active" data-tab="behavior"><span class="ico">◐</span>Behavior</div>
+    <div class="nav" data-tab="avatar"><span class="ico">◇</span>Avatar</div>
+    <div class="nav" data-tab="connectivity"><span class="ico">⇄</span>Connectivity</div>
+    <div class="nav" data-tab="memory"><span class="ico">✶</span>Memory</div>
+    <div class="nav" data-tab="offline"><span class="ico">☁</span>Offline Mode</div>
+    <div class="nav" data-tab="system"><span class="ico">⚙</span>System</div>
+  </nav>
 
-  <!-- Keys -->
-  <div>
-    <div class="section-label">API Keys</div>
-    <div style="display:flex;flex-direction:column;gap:10px;">
+  <!-- Content -->
+  <div class="content">
 
-      <div class="key-row">
-        <div class="key-label">
-          <span class="dot dot-openai"></span>OpenAI key
+    <!-- BEHAVIOR -->
+    <section class="panel active" data-panel="behavior">
+      <div class="panel-head">
+        <h2>Behavior</h2>
+        <p>Live toggles, plus what each should be when the app starts.</p>
+      </div>
+
+      <!-- Wake Word -->
+      <div class="card">
+        <div class="row">
+          <div class="grow">
+            <div class="name">Wake Word</div>
+            <div class="desc">Listen continuously for the wake phrase.</div>
+          </div>
+          <label class="switch"><input type="checkbox" id="t-wakeWord"><span class="track"></span></label>
         </div>
-        <div class="key-input-wrap">
-          <input type="password" id="openaiKey" placeholder="sk-proj-…" autocomplete="off" spellcheck="false">
-          <button class="reveal" data-target="openaiKey" title="Show / hide">👁</button>
+        <div class="sub">
+          <span class="label">On by default at launch</span>
+          <label class="switch sm"><input type="checkbox" id="d-wakeWord"><span class="track"></span></label>
         </div>
       </div>
 
-      <div class="key-row">
-        <div class="key-label">
-          <span class="dot dot-gemini"></span>Gemini key
+      <!-- Text Input -->
+      <div class="card">
+        <div class="row">
+          <div class="grow">
+            <div class="name">Text Input</div>
+            <div class="desc">Show the type-to-talk input box on the overlay.</div>
+          </div>
+          <label class="switch"><input type="checkbox" id="t-textInput"><span class="track"></span></label>
         </div>
-        <div class="key-input-wrap">
-          <input type="password" id="geminiKey" placeholder="AIza…" autocomplete="off" spellcheck="false">
-          <button class="reveal" data-target="geminiKey" title="Show / hide">👁</button>
+        <div class="sub">
+          <span class="label">On by default at launch</span>
+          <label class="switch sm"><input type="checkbox" id="d-textInput"><span class="track"></span></label>
         </div>
       </div>
 
-    </div>
+      <!-- Fade on Hover -->
+      <div class="card">
+        <div class="row">
+          <div class="grow">
+            <div class="name">Fade on Hover</div>
+            <div class="desc">Dim the avatar when the cursor is near it.</div>
+          </div>
+          <label class="switch"><input type="checkbox" id="t-opacity"><span class="track"></span></label>
+        </div>
+        <div class="sub">
+          <span class="label">On by default at launch</span>
+          <label class="switch sm"><input type="checkbox" id="d-opacity"><span class="track"></span></label>
+        </div>
+      </div>
+    </section>
+
+    <!-- AVATAR -->
+    <section class="panel" data-panel="avatar">
+      <div class="panel-head">
+        <h2>Avatar</h2>
+        <p>Fine-tune how the avatar is lit, framed, and positioned.</p>
+      </div>
+      <div class="card">
+        <div class="row">
+          <div class="grow">
+            <div class="name">Tuning Panel</div>
+            <div class="desc">Show the on-screen controls for lighting, camera, and viewport position.</div>
+          </div>
+          <label class="switch"><input type="checkbox" id="t-debugGui"><span class="track"></span></label>
+        </div>
+      </div>
+    </section>
+
+    <!-- CONNECTIVITY -->
+    <section class="panel" data-panel="connectivity">
+      <div class="panel-head">
+        <h2>Connectivity</h2>
+        <p>Link the services Violet can act on for you.</p>
+      </div>
+
+      <div class="card">
+        <div class="row">
+          <span class="dot off" id="wa-dot"></span>
+          <div class="grow">
+            <div class="name">WhatsApp</div>
+            <div class="status-text" id="wa-status">Disconnected</div>
+          </div>
+          <button id="wa-btn">Connect</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="row">
+          <span class="dot off" id="sp-dot"></span>
+          <div class="grow">
+            <div class="name">Spotify</div>
+            <div class="status-text" id="sp-status">Disconnected</div>
+          </div>
+          <button id="sp-btn">Connect</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- MEMORY -->
+    <section class="panel" data-panel="memory">
+      <div class="panel-head">
+        <h2>Memory</h2>
+        <p>Everything Violet remembers about you, long-term.</p>
+      </div>
+      <div class="card">
+        <div class="row">
+          <div class="grow">
+            <div class="name">Long-term memory</div>
+            <div class="desc">Browse, search, and edit stored facts — or wipe them all.</div>
+          </div>
+        </div>
+        <div class="sub" style="border:none;padding-top:13px;">
+          <div class="btn-row" style="flex:1;">
+            <button id="mem-view">View Memory…</button>
+            <button class="danger" id="mem-reset">Reset Memory…</button>
+          </div>
+          <span class="msg" id="mem-msg" style="font-size:11.5px;color:var(--muted);"></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- OFFLINE -->
+    <section class="panel" data-panel="offline">
+      <div class="panel-head">
+        <h2>Offline Mode</h2>
+        <p>Which cloud model answers when the backend is unreachable.</p>
+      </div>
+
+      <div class="card stack">
+        <div class="providers">
+          <label class="provider" id="prov-openai">
+            <input type="radio" name="provider" value="openai">
+            <div><div class="pname">OpenAI</div><div class="pmodel">gpt-4o-mini</div></div>
+          </label>
+          <label class="provider" id="prov-gemini">
+            <input type="radio" name="provider" value="gemini">
+            <div><div class="pname">Gemini</div><div class="pmodel">2.5 Flash</div></div>
+          </label>
+        </div>
+
+        <div class="field">
+          <div class="flabel"><span class="kdot" style="background:var(--blue);"></span>OpenAI key</div>
+          <div class="inputwrap">
+            <input type="password" id="openaiKey" placeholder="sk-proj-…" autocomplete="off" spellcheck="false">
+            <button class="reveal" data-target="openaiKey">👁</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <div class="flabel"><span class="kdot" style="background:var(--green);"></span>Gemini key</div>
+          <div class="inputwrap">
+            <input type="password" id="geminiKey" placeholder="AIza…" autocomplete="off" spellcheck="false">
+            <button class="reveal" data-target="geminiKey">👁</button>
+          </div>
+        </div>
+
+        <div class="save-row">
+          <button class="primary" id="offline-save">Save</button>
+          <span class="msg" id="offline-msg"></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- SYSTEM -->
+    <section class="panel" data-panel="system">
+      <div class="panel-head">
+        <h2>System</h2>
+        <p>Desktop integration.</p>
+      </div>
+      <div class="card">
+        <div class="row">
+          <div class="grow">
+            <div class="name">Pin to Taskbar</div>
+            <div class="desc">Open Windows taskbar settings to pin Violet.</div>
+          </div>
+          <button id="pin-btn">Open…</button>
+        </div>
+      </div>
+    </section>
+
   </div>
-
-  <div class="status" id="status"></div>
-
-</div>
-
-<div class="footer">
-  <button class="btn-cancel" id="cancelBtn">Cancel</button>
-  <button class="btn-save"   id="saveBtn">Save</button>
 </div>
 
 <script>
-  const shell = window.settingsShell;
+  const S = window.settingsShell;
+  const $ = (id) => document.getElementById(id);
 
-  const radios    = document.querySelectorAll('input[name="provider"]');
-  const cards     = document.querySelectorAll('.provider-card');
-  const openaiKey = document.getElementById('openaiKey');
-  const geminiKey = document.getElementById('geminiKey');
-  const status    = document.getElementById('status');
-  const saveBtn   = document.getElementById('saveBtn');
-
-  function updateCards() {
-    radios.forEach((r) => {
-      const card = document.getElementById('card-' + r.value);
-      if (card) card.classList.toggle('selected', r.checked);
+  /* ── Tab switching ── */
+  document.querySelectorAll('.nav').forEach((nav) => {
+    nav.addEventListener('click', () => {
+      document.querySelectorAll('.nav').forEach((n) => n.classList.remove('active'));
+      document.querySelectorAll('.panel').forEach((p) => p.classList.remove('active'));
+      nav.classList.add('active');
+      document.querySelector(`.panel[data-panel="${nav.dataset.tab}"]`).classList.add('active');
     });
+  });
+
+  $('closeBtn').addEventListener('click', () => S.close());
+
+  /* ── Behavior toggles ── */
+  function wireToggle(id, key)      { $(id).addEventListener('change', (e) => S.toggle(key, e.target.checked)); }
+  function wireDefault(id, key)     { $(id).addEventListener('change', (e) => S.setDefault(key, e.target.checked)); }
+  wireToggle('t-wakeWord', 'wakeWord');
+  wireToggle('t-textInput', 'textInput');
+  wireToggle('t-opacity', 'opacity');
+  wireToggle('t-debugGui', 'debugGui');
+  wireDefault('d-wakeWord', 'wakeWord');
+  wireDefault('d-textInput', 'textInput');
+  wireDefault('d-opacity', 'opacity');
+
+  /* ── Connectivity ── */
+  function paintConn(c) {
+    const wa = c.whatsapp;
+    $('wa-dot').className   = 'dot ' + (wa === 'connected' ? 'on' : wa === 'connecting' ? 'mid' : 'off');
+    $('wa-status').textContent = wa === 'connected' ? 'Connected' : wa === 'connecting' ? 'Connecting… (scan the QR popup)' : 'Disconnected';
+    $('wa-btn').textContent = wa === 'disconnected' ? 'Connect' : 'Disconnect';
+
+    const sp = c.spotify === 'connected';
+    $('sp-dot').className   = 'dot ' + (sp ? 'on' : 'off');
+    $('sp-status').textContent = sp ? 'Connected' : 'Disconnected';
+    $('sp-btn').textContent = sp ? 'Disconnect' : 'Connect';
   }
 
-  radios.forEach((r) => r.addEventListener('change', updateCards));
-
-  document.querySelectorAll('.reveal').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const inp = document.getElementById(btn.dataset.target);
-      inp.type = inp.type === 'password' ? 'text' : 'password';
-    });
+  $('wa-btn').addEventListener('click', async () => {
+    const connecting = $('wa-btn').textContent === 'Disconnect';
+    $('wa-btn').disabled = true;
+    if (connecting) await S.waDisconnect(); else await S.waConnect();
+    $('wa-btn').disabled = false;
+    paintConn(await S.status());
+  });
+  $('sp-btn').addEventListener('click', async () => {
+    const connected = $('sp-btn').textContent === 'Disconnect';
+    $('sp-btn').disabled = true;
+    if (connected) await S.spotifyDisconnect(); else await S.spotifyConnect();
+    $('sp-btn').disabled = false;
+    paintConn(await S.status());
   });
 
-  document.getElementById('closeBtn').addEventListener('click',  () => shell.close());
-  document.getElementById('cancelBtn').addEventListener('click', () => shell.close());
+  // Poll status while open so the dots track background changes (QR scan etc.)
+  setInterval(async () => { try { paintConn(await S.status()); } catch {} }, 1500);
 
-  saveBtn.addEventListener('click', async () => {
-    saveBtn.disabled = true;
-    status.className = 'status';
-    status.textContent = 'Saving…';
+  /* ── Memory ── */
+  $('mem-view').addEventListener('click', () => S.memoryView());
+  $('mem-reset').addEventListener('click', async () => {
+    const res = await S.memoryReset();
+    const msg = $('mem-msg');
+    if (res && res.ok) { msg.textContent = `Cleared ${res.removed} memories.`; }
+    else if (res && res.cancelled) { msg.textContent = ''; }
+    else { msg.textContent = 'Reset failed — backend unreachable.'; }
+  });
 
+  /* ── Offline mode ── */
+  const radios = document.querySelectorAll('input[name="provider"]');
+  function paintProviders() {
+    radios.forEach((r) => $('prov-' + r.value).classList.toggle('selected', r.checked));
+  }
+  radios.forEach((r) => r.addEventListener('change', paintProviders));
+  document.querySelectorAll('.reveal').forEach((b) => b.addEventListener('click', () => {
+    const inp = $(b.dataset.target);
+    inp.type = inp.type === 'password' ? 'text' : 'password';
+  }));
+  $('offline-save').addEventListener('click', async () => {
+    const btn = $('offline-save'); const msg = $('offline-msg');
+    btn.disabled = true; msg.className = 'msg'; msg.textContent = 'Saving…';
     const provider = [...radios].find((r) => r.checked)?.value || 'openai';
-
     try {
-      await shell.save({
-        fallbackProvider: provider,
-        openaiApiKey:     openaiKey.value.trim(),
-        geminiApiKey:     geminiKey.value.trim(),
-      });
-      status.className = 'status ok';
-      status.textContent = 'Saved.';
-      setTimeout(() => shell.close(), 700);
-    } catch (err) {
-      status.className = 'status error';
-      status.textContent = 'Save failed — ' + (err && err.message || String(err));
-      saveBtn.disabled = false;
+      await S.saveOffline({ provider, openaiKey: $('openaiKey').value.trim(), geminiKey: $('geminiKey').value.trim() });
+      msg.className = 'msg ok'; msg.textContent = 'Saved.';
+    } catch (e) {
+      msg.className = 'msg err'; msg.textContent = 'Save failed.';
     }
+    btn.disabled = false;
+    setTimeout(() => { if (msg.classList.contains('ok')) msg.textContent = ''; }, 2000);
   });
 
-  // Load current settings on open
-  shell.load().then((s) => {
-    radios.forEach((r) => { r.checked = r.value === s.fallbackProvider; });
-    openaiKey.value = s.openaiApiKey || '';
-    geminiKey.value = s.geminiApiKey || '';
-    updateCards();
+  /* ── System ── */
+  $('pin-btn').addEventListener('click', () => S.pinTaskbar());
+
+  /* ── Initial load ── */
+  S.load().then((s) => {
+    $('t-wakeWord').checked  = s.behavior.wakeWord;
+    $('t-textInput').checked = s.behavior.textInput;
+    $('t-opacity').checked   = s.behavior.opacity;
+    $('d-wakeWord').checked  = s.behavior.wakeWordDefault;
+    $('d-textInput').checked = s.behavior.textInputDefault;
+    $('d-opacity').checked   = s.behavior.opacityDefault;
+
+    $('t-debugGui').checked  = s.avatar.debugGui;
+
+    paintConn(s.connectivity);
+
+    radios.forEach((r) => { r.checked = r.value === s.offline.provider; });
+    $('openaiKey').value = s.offline.openaiKey || '';
+    $('geminiKey').value = s.offline.geminiKey || '';
+    paintProviders();
   });
 </script>
 </body>

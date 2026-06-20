@@ -1,62 +1,21 @@
 // Persona desktop shell — tray.
 //
-// System tray icon + context menu. Rebuilt whenever any state changes
-// (WhatsApp status, Spotify auth, checkbox toggles).
+// System tray icon + context menu. Kept intentionally lean: quick avatar
+// actions, the live private modes, and connection status live here; every
+// tunable preference lives in the Settings window (settingsWindow.js).
+// Rebuilt whenever any surfaced state changes.
 
 const {
   app,
   Tray,
   Menu,
-  shell,
-  dialog,
 } = require('electron');
 
 const spotify = require('./spotify');
 const { showQr, hideQr } = require('./qrWindow');
-const { createMemoryWindow }   = require('./memoryWindow');
 const { createSettingsWindow } = require('./settingsWindow');
 const whatsapp = require('./tools/whatsapp');
-
-// Backend api base. Hardcoded localhost to match the renderer's other
-// service URLs; revisit when the backend becomes remotely hosted.
-const API_BASE = 'http://localhost:8000';
-
-// Wipe Violet's long-term memory after an explicit confirm. The memory
-// lives server-side (server/api), so this is a simple authenticated-by-
-// locality HTTP call — no renderer round-trip needed.
-async function resetMemory() {
-  const { response } = await dialog.showMessageBox({
-    type: 'warning',
-    buttons: ['Cancel', 'Reset Memory'],
-    defaultId: 0,
-    cancelId: 0,
-    title: 'Reset Memory',
-    message: 'Erase everything Violet remembers about you?',
-    detail:
-      'This permanently deletes all long-term memories (facts, '
-      + 'preferences, people). The current conversation is unaffected. '
-      + 'This cannot be undone.',
-  });
-
-  if (response !== 1) return; // Cancel
-
-  try {
-    const res = await fetch(`${API_BASE}/memory/reset`, { method: 'POST' });
-    const data = await res.json();
-    dialog.showMessageBox({
-      type: 'info',
-      title: 'Memory Reset',
-      message: `Cleared ${data.removed ?? 0} memories.`,
-    });
-  } catch (err) {
-    dialog.showMessageBox({
-      type: 'error',
-      title: 'Reset Failed',
-      message: 'Could not reach the backend to reset memory.',
-      detail: (err && err.message) || String(err),
-    });
-  }
-}
+const { loadSettings } = require('./userSettings');
 
 const {
   AGENT_NAME,
@@ -70,13 +29,26 @@ const {
 
 let tray = null;
 
-// ─── Checkbox / toggle state ──────────────────────────────────────────────────
+// ─── Live toggle state ────────────────────────────────────────────────────────
+//
+// Wake word / text input / fade-on-hover are live session toggles, now
+// driven from the Settings window. Their *startup* value is the persisted
+// "on by default" preference, applied in createTray() once the app (and so
+// userData) is ready. Until then these hold safe fallbacks.
 
 let debugGuiVisible       = false;
 let devToolsOpen          = false;
 let wakeWordEnabled       = true;
 let opacityOnHoverEnabled = false;
 let textInputEnabled      = false;
+
+function _applyStartupDefaults() {
+  const s = loadSettings() || {};
+  const d = s.defaults || {};
+  if (typeof d.wakeWord       === 'boolean') wakeWordEnabled       = d.wakeWord;
+  if (typeof d.textInput      === 'boolean') textInputEnabled      = d.textInput;
+  if (typeof d.opacityOnHover === 'boolean') opacityOnHoverEnabled = d.opacityOnHover;
+}
 
 // Personalities — roster + active id come from the backend via the
 // renderer (IPC). Until the renderer connects, the submenu shows a
@@ -94,6 +66,10 @@ let adultModeAvailable = false;
 let textModeEnabled    = false;
 let textModeAvailable  = false;
 
+// Last QR string seen, so the WhatsApp tray submenu can re-show the popup
+// if the user dismissed it while still connecting.
+let _lastQr = null;
+
 // ─── Service status labels ────────────────────────────────────────────────────
 
 function _waDot() {
@@ -103,8 +79,84 @@ function _waDot() {
   return '🔴';
 }
 
+function _waLabel() {
+  const s = whatsapp.getStatus();
+  if (s === 'connected')  return 'Connected';
+  if (s === 'connecting') return 'Connecting…';
+  return 'Disconnected';
+}
+
 function _spotifyDot() {
   return spotify.isAuthenticated() ? '🟢' : '🔴';
+}
+
+// ─── Quick-action submenus (status + reconnect) ───────────────────────────────
+//
+// Full connect/disconnect management lives in Settings → Connectivity. The
+// tray submenus are quick status + a reconnect/refresh shortcut.
+
+async function _reconnectWhatsApp() {
+  try { await whatsapp.disconnect(); } catch { /* ignore */ }
+  whatsapp.init().catch((err) => {
+    console.error('[tray] WhatsApp reconnect error:', err && err.message);
+  });
+}
+
+function _waSubmenu() {
+  const status = whatsapp.getStatus();
+  const items = [
+    { label: `Status: ${_waLabel()}`, enabled: false },
+    { type: 'separator' },
+  ];
+
+  if (status === 'connecting') {
+    if (_lastQr) {
+      items.push({
+        label: 'Show QR Code',
+        click: () => {
+          showQr(_lastQr).catch((err) =>
+            console.error('[tray] show QR error:', err && err.message));
+        },
+      });
+    }
+    items.push({
+      label: 'Cancel',
+      click: () => {
+        whatsapp.disconnect().catch(() => {});
+        hideQr();
+        rebuildTrayMenu();
+      },
+    });
+  } else if (status === 'connected') {
+    items.push({ label: 'Reconnect', click: () => _reconnectWhatsApp() });
+  } else {
+    items.push({
+      label: 'Connect',
+      click: () => {
+        whatsapp.init().catch((err) =>
+          console.error('[tray] WhatsApp connect error:', err && err.message));
+        rebuildTrayMenu();
+      },
+    });
+  }
+  return items;
+}
+
+function _spotifySubmenu() {
+  const auth = spotify.isAuthenticated();
+  const items = [
+    { label: `Status: ${auth ? 'Connected' : 'Disconnected'}`, enabled: false },
+    { type: 'separator' },
+  ];
+  items.push({
+    label: auth ? 'Refresh' : 'Connect',
+    click: () => {
+      spotify.authenticate()
+        .then(() => rebuildTrayMenu())
+        .catch((err) => console.error('[tray] Spotify auth failed:', err && err.message));
+    },
+  });
+  return items;
 }
 
 function _personalitySubmenu() {
@@ -124,7 +176,7 @@ function _personalitySubmenu() {
   }));
 }
 
-// Called from ipc.js when the renderer relays backend personality frames.
+// ─── State setters relayed from ipc.js (backend frames) ───────────────────────
 
 function setPersonalityRoster(msg) {
   personalityRoster = (msg && msg.personalities) || [];
@@ -137,7 +189,6 @@ function setActivePersonality(id) {
   rebuildTrayMenu();
 }
 
-// Called from ipc.js when the renderer relays backend adult-mode frames.
 function setAdultModeState(state) {
   if (!state) return;
   if (typeof state.available === 'boolean') adultModeAvailable = state.available;
@@ -145,7 +196,6 @@ function setAdultModeState(state) {
   rebuildTrayMenu();
 }
 
-// Called from ipc.js when the renderer relays backend text-mode frames.
 function setTextModeState(state) {
   if (!state) return;
   if (typeof state.available === 'boolean') textModeAvailable = state.available;
@@ -153,78 +203,47 @@ function setTextModeState(state) {
   rebuildTrayMenu();
 }
 
+// ─── Live toggle appliers (called from the Settings window) ───────────────────
+//
+// Each updates local state and pushes the change to the renderer. They do
+// NOT touch persisted defaults — the Settings window saves those separately.
+
+function applyWakeWord(enabled) {
+  wakeWordEnabled = !!enabled;
+  const w = getMainWindow();
+  if (w) w.webContents.send('persona:toggle-wake-word', wakeWordEnabled);
+}
+
+function applyTextInput(enabled) {
+  textInputEnabled = !!enabled;
+  const w = getMainWindow();
+  if (w) w.webContents.send('persona:toggle-text-input', textInputEnabled);
+}
+
+function applyOpacityOnHover(enabled) {
+  opacityOnHoverEnabled = !!enabled;
+  const w = getMainWindow();
+  if (w) w.webContents.send('persona:toggle-opacity-on-hover', opacityOnHoverEnabled);
+}
+
+function applyDebugGui(enabled) {
+  debugGuiVisible = !!enabled;
+  const w = getMainWindow();
+  if (w) w.webContents.send('persona:toggle-debug-gui', debugGuiVisible);
+}
+
 // ─── Tray menu build ──────────────────────────────────────────────────────────
 
 function rebuildTrayMenu() {
   if (!tray) return;
 
-  const mainWindow = getMainWindow();
-  const waStatus   = whatsapp.getStatus();
-
-  const waSubmenu = waStatus === 'connected'
-    ? [
-        {
-          label: 'Disconnect WhatsApp',
-          click: () => {
-            whatsapp.disconnect().catch((err) => {
-              console.error('[tray] WhatsApp disconnect error:', err.message);
-            });
-          },
-        },
-      ]
-    : waStatus === 'connecting'
-    ? [
-        { label: 'Connecting… (scan QR window)', enabled: false },
-        {
-          label: 'Cancel',
-          click: () => {
-            whatsapp.disconnect().catch(() => {});
-            hideQr();
-          },
-        },
-      ]
-    : [
-        {
-          label: 'Connect WhatsApp',
-          click: () => {
-            whatsapp.init().catch((err) => {
-              console.error('[tray] WhatsApp connect error:', err.message);
-            });
-            rebuildTrayMenu();
-          },
-        },
-      ];
-
-  const spotifySubmenu = spotify.isAuthenticated()
-    ? [
-        {
-          label: 'Disconnect Spotify',
-          click: () => {
-            spotify.disconnect();
-            rebuildTrayMenu();
-          },
-        },
-      ]
-    : [
-        {
-          label: 'Connect Spotify',
-          click: () => {
-            spotify.authenticate()
-              .then(() => rebuildTrayMenu())
-              .catch((err) => {
-                console.error('[tray] Spotify auth failed:', err.message);
-              });
-          },
-        },
-      ];
-
   const contextMenu = Menu.buildFromTemplate([
 
+    // ── Avatar quick actions ──────────────────────────────────────────────
     {
       label: 'Show / Hide',
       click: toggleWindow,
     },
-
     {
       label: 'Reload Avatar',
       click: () => {
@@ -236,128 +255,17 @@ function rebuildTrayMenu() {
     { type: 'separator' },
 
     {
-      label: 'Settings...',
-      click: () => {
-        if (debugGuiVisible) return;
-        debugGuiVisible = true;
-        const w = getMainWindow();
-        if (w) w.webContents.send('persona:toggle-debug-gui', true);
-        rebuildTrayMenu();
-      },
-    },
-
-    {
-      label: 'Offline Mode Settings...',
+      label: 'Settings…',
       click: () => createSettingsWindow(),
     },
 
     { type: 'separator' },
 
-    {
-      label:   'Wake Word',
-      type:    'checkbox',
-      checked: wakeWordEnabled,
-      click:   (menuItem) => {
-        wakeWordEnabled = menuItem.checked;
-        if (mainWindow) {
-          mainWindow.webContents.send('persona:toggle-wake-word', wakeWordEnabled);
-        }
-      },
-    },
-
-    {
-      label:   'Text Input',
-      type:    'checkbox',
-      checked: textInputEnabled,
-      click:   (menuItem) => {
-        textInputEnabled = menuItem.checked;
-        if (mainWindow) {
-          mainWindow.webContents.send('persona:toggle-text-input', textInputEnabled);
-        }
-      },
-    },
-
-    {
-      label:   'Fade on Hover',
-      type:    'checkbox',
-      checked: opacityOnHoverEnabled,
-      click:   (menuItem) => {
-        opacityOnHoverEnabled = menuItem.checked;
-        if (mainWindow) {
-          mainWindow.webContents.send('persona:toggle-opacity-on-hover', opacityOnHoverEnabled);
-        }
-      },
-    },
-
-    {
-      label:   'Debug GUI',
-      type:    'checkbox',
-      checked: debugGuiVisible,
-      click:   (menuItem) => {
-        debugGuiVisible = menuItem.checked;
-        if (mainWindow) {
-          mainWindow.webContents.send('persona:toggle-debug-gui', debugGuiVisible);
-        }
-      },
-    },
-
-    {
-      label:   'DevTools',
-      type:    'checkbox',
-      checked: devToolsOpen,
-      click:   (menuItem) => {
-        if (!mainWindow) return;
-        if (menuItem.checked) {
-          mainWindow.webContents.openDevTools({ mode: 'detach' });
-        } else {
-          mainWindow.webContents.closeDevTools();
-        }
-      },
-    },
-
-    { type: 'separator' },
-
-    // ── WhatsApp ──────────────────────────────────────────────────────────
-    {
-      label:   `${_waDot()} WhatsApp`,
-      submenu: waSubmenu,
-    },
-
-    // ── Spotify ───────────────────────────────────────────────────────────
-    {
-      label:   `${_spotifyDot()} Spotify`,
-      submenu: spotifySubmenu,
-    },
-
-    // ── Memory ────────────────────────────────────────────────────────────
-    {
-      label: 'Memory',
-      submenu: [
-        {
-          label: 'View Memory…',
-          click: () => createMemoryWindow(),
-        },
-        { type: 'separator' },
-        {
-          label: 'Reset Memory…',
-          click: () => {
-            resetMemory().catch((err) => {
-              console.error('[tray] reset memory error:', err && err.message);
-            });
-          },
-        },
-      ],
-    },
-
-    // ── Personality ───────────────────────────────────────────────────────
+    // ── Personality + private modes ───────────────────────────────────────
     {
       label:   'Personality',
       submenu: _personalitySubmenu(),
     },
-
-    // ── Adult Mode (local-model only) ─────────────────────────────────────
-    // Greyed unless a local model is connected; the backend hard-blocks it
-    // on any cloud provider, so this toggle only ever runs locally.
     {
       label:   adultModeAvailable
                  ? 'Deep Mode (local only)'
@@ -370,8 +278,6 @@ function rebuildTrayMenu() {
         if (w) w.webContents.send('persona:set-adult-mode', menuItem.checked);
       },
     },
-
-    // ── Text Mode (muted text roleplay, local-model only) ─────────────────
     {
       label:   textModeAvailable
                  ? 'Text Mode (local only)'
@@ -387,12 +293,30 @@ function rebuildTrayMenu() {
 
     { type: 'separator' },
 
+    // ── Connection status (quick view; manage in Settings) ────────────────
     {
-      label: 'Pin to Taskbar...',
-      click: () => {
-        shell.openExternal('ms-settings:taskbar').catch((err) => {
-          console.warn('[shell] failed to open taskbar settings:', err && err.message);
-        });
+      label:   `${_waDot()} WhatsApp`,
+      submenu: _waSubmenu(),
+    },
+    {
+      label:   `${_spotifyDot()} Spotify`,
+      submenu: _spotifySubmenu(),
+    },
+
+    { type: 'separator' },
+
+    {
+      label:   'DevTools',
+      type:    'checkbox',
+      checked: devToolsOpen,
+      click:   (menuItem) => {
+        const w = getMainWindow();
+        if (!w) return;
+        if (menuItem.checked) {
+          w.webContents.openDevTools({ mode: 'detach' });
+        } else {
+          w.webContents.closeDevTools();
+        }
       },
     },
 
@@ -413,11 +337,13 @@ function rebuildTrayMenu() {
 whatsapp.onStatusChange((status) => {
   rebuildTrayMenu();
   if (status === 'connected') {
+    _lastQr = null;
     hideQr();
   }
 });
 
 whatsapp.onQr((qrString) => {
+  _lastQr = qrString;
   showQr(qrString).catch((err) => {
     console.error('[tray] Failed to show QR window:', err.message);
   });
@@ -426,6 +352,11 @@ whatsapp.onQr((qrString) => {
 // ─── Tray creation ────────────────────────────────────────────────────────────
 
 function createTray() {
+  // userData is available now (app is ready) — pull the persisted
+  // "on by default" preferences before the first menu build so the
+  // renderer's persona:ready read sees the right startup state.
+  _applyStartupDefaults();
+
   tray = new Tray(TRAY_ICON_PATH);
   tray.setToolTip(AGENT_NAME);
   rebuildTrayMenu();
@@ -444,17 +375,23 @@ function createTray() {
   }
 }
 
-// ─── Exports for ipc.js ───────────────────────────────────────────────────────
+// ─── Exports ──────────────────────────────────────────────────────────────────
 
 function isWakeWordEnabled()       { return wakeWordEnabled; }
 function isOpacityOnHoverEnabled() { return opacityOnHoverEnabled; }
 function isTextInputEnabled()      { return textInputEnabled; }
+function isDebugGuiVisible()       { return debugGuiVisible; }
 
 module.exports = {
   createTray,
   isWakeWordEnabled,
   isOpacityOnHoverEnabled,
   isTextInputEnabled,
+  isDebugGuiVisible,
+  applyWakeWord,
+  applyTextInput,
+  applyOpacityOnHover,
+  applyDebugGui,
   setActivePersonality,
   setPersonalityRoster,
   setAdultModeState,
