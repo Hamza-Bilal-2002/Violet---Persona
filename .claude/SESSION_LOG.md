@@ -6,6 +6,36 @@ this is what we actually did. Pairs with the memory index (MEMORY.md).
 
 ---
 
+## 2026-06-20 — PC bring-up + Settings overhaul + native avatar tuning
+
+- **Local model live on PC**: backend Dockerized stack runs; Ollama
+  (`llama3.1:8b`) pulls + answers, `/health` shows `active_provider: local`.
+  Running on CPU for now — RX 6600 (AMD) needs native Ollama + HIP SDK on
+  Windows (Docker GPU passthrough is NVIDIA-only); deferred until home.
+  Fixed `.env.example` (was stale Gemini; now OpenAI + provider vars).
+- **Offline-mode settings**: client fallback now switchable OpenAI ⇄
+  Gemini 2.5 Flash (Gemini via its OpenAI-compatible endpoint) with a
+  per-provider key editor. `fallbackChat.js` resolves provider+key at call
+  time from `violet-settings.json`.
+- **Tray makeover**: tray slimmed to quick actions + status (Show/Hide,
+  Reload Avatar, Settings…, Personality, Deep/Text Mode, WhatsApp/Spotify
+  status+reconnect, DevTools, Quit). Everything tunable moved into one
+  **Settings window** (`settingsWindow.js` + `settingsView.html`): dark-glass,
+  sidebar-navigated. Sections: Behavior (wake word / text input / fade —
+  each a live switch + an "on by default at launch" switch persisted to
+  `settings.defaults`, applied in `tray._applyStartupDefaults`), Avatar,
+  Connectivity, Memory, Offline Mode, System (pin to taskbar).
+- **Native avatar tuning + lil-gui removal**: deleted the in-overlay
+  lil-gui (`debugGUI.js`) and ported lighting/camera/position/mesh-
+  visibility into the Settings → Avatar section. Fixed the click-through
+  bug: lil-gui being open made `_isCursorOverAvatar` return true always,
+  freezing the whole transparent window non-pass-through. Bridge:
+  `frontend/js/runtime/tuning.js` (snapshot/apply/save) ↔ main
+  (`settings:tune-*`, cached snapshot) ↔ Settings UI (amber sliders/colors/
+  switches, collapsible groups, Save Look).
+
+---
+
 ## 2026-06-20 — Text Mode (muted text roleplay + chatbox)
 
 - Muted text-to-text roleplay; the text sibling of deep mode. Avatar emotes
