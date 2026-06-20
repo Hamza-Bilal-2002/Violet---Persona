@@ -295,5 +295,31 @@ contextBridge.exposeInMainWorld(
     isFallbackAvailable: () =>
       ipcRenderer.invoke('persona:fallback-available'),
 
+    // ── Avatar tuning bridge ─────────────────────────────────────────
+    //
+    // The Settings window's Avatar section drives the live three.js
+    // objects (lighting / camera / position / mesh visibility) through
+    // the main process. The renderer pushes a snapshot up so the
+    // sliders open correctly, listens for per-control changes, and for
+    // a save request.
+
+    // Renderer -> shell: current tuning values (sent once on ready).
+    tuneReady: (snapshot) =>
+      ipcRenderer.send('persona:tune-ready', snapshot),
+
+    // Shell -> renderer: a single control change { path, value }.
+    onTune: (callback) => {
+      ipcRenderer.on('persona:tune', (_event, change) => {
+        callback(change);
+      });
+    },
+
+    // Shell -> renderer: persist the current look to violet-settings.json.
+    onTuneSave: (callback) => {
+      ipcRenderer.on('persona:tune-save', () => {
+        callback();
+      });
+    },
+
   }
 );

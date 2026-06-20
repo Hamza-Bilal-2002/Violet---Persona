@@ -208,6 +208,43 @@
   .stack { display: flex; flex-direction: column; gap: 11px; }
   .btn-row { display: flex; gap: 9px; }
 
+  /* ── Tuning groups ───────────────────────────────────────────── */
+  .tgroup { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .tgroup-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 11px 14px; cursor: pointer; user-select: none;
+    font-size: 12.5px; font-weight: 600; color: var(--text);
+  }
+  .tgroup-head:hover { background: var(--panel-2); }
+  .tgroup-head .chev { color: var(--muted); font-size: 10px; transition: transform 0.15s; margin-left: auto; }
+  .tgroup.collapsed .chev { transform: rotate(-90deg); }
+  .tgroup-body { padding: 4px 14px 13px; display: flex; flex-direction: column; gap: 9px; }
+  .tgroup.collapsed .tgroup-body { display: none; }
+
+  .trow { display: flex; align-items: center; gap: 11px; }
+  .trow .tlabel { font-size: 11.5px; color: var(--muted); width: 108px; flex-shrink: 0; }
+  .trow .treadout {
+    font-size: 11px; color: var(--faint); width: 42px; text-align: right;
+    font-family: 'Consolas', monospace; flex-shrink: 0;
+  }
+  .trow.mesh .tlabel { width: auto; flex: 1; color: var(--text); }
+
+  input[type=range] {
+    -webkit-appearance: none; flex: 1; height: 4px; border-radius: 3px;
+    background: rgba(255,255,255,0.14); outline: none; cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 13px; height: 13px; border-radius: 50%;
+    background: var(--amber); cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+  }
+  input[type=color] {
+    -webkit-appearance: none; width: 32px; height: 22px; border: 1px solid var(--border);
+    border-radius: 6px; background: transparent; padding: 0; cursor: pointer; flex-shrink: 0;
+  }
+  input[type=color]::-webkit-color-swatch-wrapper { padding: 2px; }
+  input[type=color]::-webkit-color-swatch { border: none; border-radius: 4px; }
+  .trow .cspace { flex: 1; }
+
   ::-webkit-scrollbar { width: 5px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
@@ -296,17 +333,16 @@
     <!-- AVATAR -->
     <section class="panel" data-panel="avatar">
       <div class="panel-head">
-        <h2>Avatar</h2>
-        <p>Fine-tune how the avatar is lit, framed, and positioned.</p>
+        <h2>Avatar — Tuning Panel</h2>
+        <p>Lighting, camera, on-screen position, and visible parts. Changes apply live.</p>
       </div>
-      <div class="card">
-        <div class="row">
-          <div class="grow">
-            <div class="name">Tuning Panel</div>
-            <div class="desc">Show the on-screen controls for lighting, camera, and viewport position.</div>
-          </div>
-          <label class="switch"><input type="checkbox" id="t-debugGui"><span class="track"></span></label>
-        </div>
+      <div id="tune-empty" class="card status-text" style="display:none;">
+        Start the avatar first — its tuning controls appear here once it's loaded.
+      </div>
+      <div id="tune-root" class="stack"></div>
+      <div class="save-row" id="tune-saverow" style="display:none;">
+        <button class="primary" id="tune-save">Save Look</button>
+        <span class="msg" id="tune-msg"></span>
       </div>
     </section>
 
@@ -436,6 +472,9 @@
       document.querySelectorAll('.panel').forEach((p) => p.classList.remove('active'));
       nav.classList.add('active');
       document.querySelector(`.panel[data-panel="${nav.dataset.tab}"]`).classList.add('active');
+      // The avatar may finish loading after Settings opens, so re-pull the
+      // tuning snapshot each time the Avatar tab is shown.
+      if (nav.dataset.tab === 'avatar') refreshTuning();
     });
   });
 
@@ -447,7 +486,6 @@
   wireToggle('t-wakeWord', 'wakeWord');
   wireToggle('t-textInput', 'textInput');
   wireToggle('t-opacity', 'opacity');
-  wireToggle('t-debugGui', 'debugGui');
   wireDefault('d-wakeWord', 'wakeWord');
   wireDefault('d-textInput', 'textInput');
   wireDefault('d-opacity', 'opacity');
@@ -517,6 +555,167 @@
     setTimeout(() => { if (msg.classList.contains('ok')) msg.textContent = ''; }, 2000);
   });
 
+  /* ── Avatar tuning ── */
+  const tuneRoot = $('tune-root');
+
+  function el(tag, cls, txt) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (txt != null) e.textContent = txt;
+    return e;
+  }
+
+  function group(title, collapsed) {
+    const g = el('div', 'tgroup' + (collapsed ? ' collapsed' : ''));
+    const head = el('div', 'tgroup-head');
+    head.appendChild(el('span', null, title));
+    head.appendChild(el('span', 'chev', '▾'));
+    const body = el('div', 'tgroup-body');
+    head.addEventListener('click', () => g.classList.toggle('collapsed'));
+    g.appendChild(head); g.appendChild(body);
+    tuneRoot.appendChild(g);
+    return body;
+  }
+
+  function slider(body, label, path, min, max, step, value) {
+    const row = el('div', 'trow');
+    row.appendChild(el('span', 'tlabel', label));
+    const inp = el('input'); inp.type = 'range';
+    inp.min = min; inp.max = max; inp.step = step; inp.value = value;
+    const out = el('span', 'treadout', fmt(value, step));
+    inp.addEventListener('input', () => {
+      const v = parseFloat(inp.value);
+      out.textContent = fmt(v, step);
+      S.tuneSet({ path, value: v });
+    });
+    row.appendChild(inp); row.appendChild(out);
+    body.appendChild(row);
+    return inp;
+  }
+
+  function color(body, label, path, value) {
+    const row = el('div', 'trow');
+    row.appendChild(el('span', 'tlabel', label));
+    row.appendChild(el('span', 'cspace'));
+    const inp = el('input'); inp.type = 'color'; inp.value = value;
+    inp.addEventListener('input', () => S.tuneSet({ path, value: inp.value }));
+    row.appendChild(inp);
+    body.appendChild(row);
+  }
+
+  function meshToggle(body, name, visible) {
+    const row = el('div', 'trow mesh');
+    row.appendChild(el('span', 'tlabel', name));
+    const wrap = el('label', 'switch sm');
+    const inp = el('input'); inp.type = 'checkbox'; inp.checked = visible;
+    inp.addEventListener('change', () => S.tuneSet({ path: 'mesh:' + name, value: inp.checked }));
+    wrap.appendChild(inp); wrap.appendChild(el('span', 'track'));
+    row.appendChild(wrap);
+    body.appendChild(row);
+  }
+
+  function button(body, label, onClick) {
+    const row = el('div', 'trow');
+    const b = el('button', null, label);
+    b.addEventListener('click', onClick);
+    row.appendChild(b);
+    body.appendChild(row);
+  }
+
+  function fmt(v, step) {
+    return (step < 1) ? Number(v).toFixed(2) : String(Math.round(v));
+  }
+
+  function buildTuning(snap) {
+    tuneRoot.innerHTML = '';
+
+    // Lighting
+    if (snap.lighting) {
+      const L = snap.lighting;
+      const b = group('Lighting', false);
+      if (L.ambient) {
+        color(b, 'Ambient color', 'lighting.ambient.color', L.ambient.color);
+        slider(b, 'Ambient', 'lighting.ambient.intensity', 0, 3, 0.05, L.ambient.intensity);
+      }
+      if (L.key) {
+        color(b, 'Key color', 'lighting.key.color', L.key.color);
+        slider(b, 'Key intensity', 'lighting.key.intensity', 0, 3, 0.05, L.key.intensity);
+        slider(b, 'Key pos X', 'lighting.key.x', -10, 10, 0.1, L.key.x);
+        slider(b, 'Key pos Y', 'lighting.key.y', -10, 10, 0.1, L.key.y);
+        slider(b, 'Key pos Z', 'lighting.key.z', -10, 10, 0.1, L.key.z);
+      }
+      if (L.rim) {
+        color(b, 'Rim color', 'lighting.rim.color', L.rim.color);
+        slider(b, 'Rim intensity', 'lighting.rim.intensity', 0, 3, 0.05, L.rim.intensity);
+        slider(b, 'Rim pos X', 'lighting.rim.x', -10, 10, 0.1, L.rim.x);
+        slider(b, 'Rim pos Y', 'lighting.rim.y', -10, 10, 0.1, L.rim.y);
+        slider(b, 'Rim pos Z', 'lighting.rim.z', -10, 10, 0.1, L.rim.z);
+      }
+    }
+
+    // Camera
+    if (snap.camera) {
+      const C = snap.camera;
+      const b = group('Camera', true);
+      slider(b, 'FOV', 'camera.fov', 10, 90, 1, C.fov);
+      slider(b, 'Pos X', 'camera.posX', -5, 5, 0.05, C.posX);
+      slider(b, 'Pos Y', 'camera.posY', 0, 5, 0.05, C.posY);
+      slider(b, 'Pos Z', 'camera.posZ', 0.5, 10, 0.05, C.posZ);
+      slider(b, 'Target X', 'camera.targetX', -3, 3, 0.05, C.targetX);
+      slider(b, 'Target Y', 'camera.targetY', 0, 3, 0.05, C.targetY);
+      slider(b, 'Target Z', 'camera.targetZ', -3, 3, 0.05, C.targetZ);
+    }
+
+    // Position
+    if (snap.position) {
+      const P = snap.position;
+      const b = group('Position', false);
+      const sR = slider(b, 'Offset Right', 'position.marginRight', -600, 1200, 1, P.marginRight);
+      const sB = slider(b, 'Offset Bottom', 'position.marginBottom', -400, 400, 1, P.marginBottom);
+      button(b, 'Reset Avatar Position', () => {
+        setSlider(sR, 500, 'position.marginRight');
+        setSlider(sB, 10,  'position.marginBottom');
+      });
+      const sX = slider(b, 'Textbox X', 'position.textInputX', -600, 600, 1, P.textInputX);
+      const sY = slider(b, 'Textbox Y', 'position.textInputY', -400, 400, 1, P.textInputY);
+      button(b, 'Reset Textbox Position', () => {
+        setSlider(sX, 0, 'position.textInputX');
+        setSlider(sY, 0, 'position.textInputY');
+      });
+    }
+
+    // Meshes
+    if (Array.isArray(snap.meshes) && snap.meshes.length) {
+      const b = group('Visible Parts', true);
+      snap.meshes.forEach((m) => meshToggle(b, m.name, m.visible));
+    }
+  }
+
+  function setSlider(inp, value, path) {
+    inp.value = value;
+    inp.dispatchEvent(new Event('input'));
+  }
+
+  async function refreshTuning() {
+    const snap = await S.tuneGet();
+    if (!snap) {
+      $('tune-empty').style.display = '';
+      $('tune-saverow').style.display = 'none';
+      tuneRoot.innerHTML = '';
+      return;
+    }
+    $('tune-empty').style.display = 'none';
+    $('tune-saverow').style.display = '';
+    buildTuning(snap);
+  }
+
+  $('tune-save').addEventListener('click', async () => {
+    await S.tuneSave();
+    const msg = $('tune-msg');
+    msg.className = 'msg ok'; msg.textContent = 'Saved.';
+    setTimeout(() => { msg.textContent = ''; }, 2000);
+  });
+
   /* ── System ── */
   $('pin-btn').addEventListener('click', () => S.pinTaskbar());
 
@@ -528,8 +727,6 @@
     $('d-wakeWord').checked  = s.behavior.wakeWordDefault;
     $('d-textInput').checked = s.behavior.textInputDefault;
     $('d-opacity').checked   = s.behavior.opacityDefault;
-
-    $('t-debugGui').checked  = s.avatar.debugGui;
 
     paintConn(s.connectivity);
 

@@ -36,7 +36,6 @@ let tray = null;
 // "on by default" preference, applied in createTray() once the app (and so
 // userData) is ready. Until then these hold safe fallbacks.
 
-let debugGuiVisible       = false;
 let devToolsOpen          = false;
 let wakeWordEnabled       = true;
 let opacityOnHoverEnabled = false;
@@ -226,12 +225,6 @@ function applyOpacityOnHover(enabled) {
   if (w) w.webContents.send('persona:toggle-opacity-on-hover', opacityOnHoverEnabled);
 }
 
-function applyDebugGui(enabled) {
-  debugGuiVisible = !!enabled;
-  const w = getMainWindow();
-  if (w) w.webContents.send('persona:toggle-debug-gui', debugGuiVisible);
-}
-
 // ─── Tray menu build ──────────────────────────────────────────────────────────
 
 function rebuildTrayMenu() {
@@ -380,18 +373,15 @@ function createTray() {
 function isWakeWordEnabled()       { return wakeWordEnabled; }
 function isOpacityOnHoverEnabled() { return opacityOnHoverEnabled; }
 function isTextInputEnabled()      { return textInputEnabled; }
-function isDebugGuiVisible()       { return debugGuiVisible; }
 
 module.exports = {
   createTray,
   isWakeWordEnabled,
   isOpacityOnHoverEnabled,
   isTextInputEnabled,
-  isDebugGuiVisible,
   applyWakeWord,
   applyTextInput,
   applyOpacityOnHover,
-  applyDebugGui,
   setActivePersonality,
   setPersonalityRoster,
   setAdultModeState,

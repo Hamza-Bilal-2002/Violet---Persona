@@ -2052,29 +2052,13 @@ export class AvatarRuntime {
     // ======================
     //
     // The default click-through state passes mouse events through
-    // everything that isn't the avatar mesh — which would include
-    // the debug GUI (lil-gui) and any future overlay UI. Detect
-    // those via elementFromPoint and treat them the same as "over
-    // the avatar": capture mouse events so the user can interact.
-    //
-    // Selectors here should match every interactive overlay we
-    // want to be clickable on top of the transparent window.
-
-    // If the debug GUI is open, always capture events regardless of
-    // cursor position — in pass-through mode the window never gets
-    // mousemove events so elementFromPoint would use stale coords.
-
-    const guiEl =
-      document.querySelector('.lil-gui');
-
-    if (
-      guiEl &&
-      guiEl.style.display !== 'none'
-    ) {
-
-      return true;
-
-    }
+    // everything that isn't the avatar mesh. Detect interactive
+    // overlays under the cursor via elementFromPoint and treat them
+    // the same as "over the avatar": capture mouse events so the user
+    // can interact. Only the element actually under the cursor flips
+    // the window interactive — we never blanket-capture the whole
+    // window for an open panel (that was the old lil-gui bug, which
+    // made the entire overlay unclickable through).
 
     const elAtPoint =
       document.elementFromPoint(
@@ -2086,7 +2070,7 @@ export class AvatarRuntime {
 
       const uiHit =
         elAtPoint.closest(
-          '.lil-gui, .persona-text-input, .persona-confirm-label, .persona-chatbox'
+          '.persona-text-input, .persona-confirm-label, .persona-chatbox'
         );
 
       if (uiHit) {

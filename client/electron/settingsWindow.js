@@ -16,6 +16,7 @@ const path = require('path');
 
 const { loadSettings, saveSettings } = require('./userSettings');
 const { createMemoryWindow } = require('./memoryWindow');
+const { getMainWindow } = require('./window');
 const whatsapp = require('./tools/whatsapp');
 const spotify  = require('./spotify');
 
@@ -23,6 +24,11 @@ const spotify  = require('./spotify');
 const API_BASE = 'http://localhost:8000';
 
 let _win = null;
+
+// Latest avatar-tuning snapshot pushed up by the renderer. The Settings
+// window reads this to open its sliders at the right positions. We also
+// mirror each change into it so reopening the window stays accurate.
+let _tuneSnapshot = null;
 
 function _tray() {
   // Lazy require breaks the tray <-> settingsWindow cycle.
@@ -52,9 +58,6 @@ ipcMain.handle('settings:load', () => {
       textInputDefault: typeof d.textInput      === 'boolean' ? d.textInput      : false,
       opacityDefault:   typeof d.opacityOnHover === 'boolean' ? d.opacityOnHover : false,
     },
-    avatar: {
-      debugGui: tray.isDebugGuiVisible(),
-    },
     connectivity: _connectivity(),
     offline: {
       provider:  s.fallbackProvider || 'openai',
@@ -71,7 +74,6 @@ ipcMain.handle('settings:toggle', (_e, { key, value } = {}) => {
   if (key === 'wakeWord')  tray.applyWakeWord(value);
   if (key === 'textInput') tray.applyTextInput(value);
   if (key === 'opacity')   tray.applyOpacityOnHover(value);
-  if (key === 'debugGui')  tray.applyDebugGui(value);
   return { ok: true };
 });
 
@@ -158,6 +160,55 @@ ipcMain.handle('settings:pin-taskbar', () => {
     console.warn('[settings] open taskbar settings failed:', err && err.message));
   return { ok: true };
 });
+
+// ─── Avatar tuning bridge ─────────────────────────────────────────────────────
+//
+// Renderer pushes its current tuning snapshot here on ready; the Settings
+// window reads it to seed its controls, and each control change is forwarded
+// back to the renderer's live three.js objects.
+
+ipcMain.on('persona:tune-ready', (_e, snapshot) => {
+  _tuneSnapshot = snapshot || null;
+});
+
+ipcMain.handle('settings:tune-get', () => _tuneSnapshot);
+
+ipcMain.handle('settings:tune-set', (_e, change) => {
+  // Keep the cached snapshot in step so reopening shows the latest values.
+  _mirrorTuneChange(change);
+  const w = getMainWindow();
+  if (w) w.webContents.send('persona:tune', change);
+  return { ok: true };
+});
+
+ipcMain.handle('settings:tune-save', () => {
+  const w = getMainWindow();
+  if (w) w.webContents.send('persona:tune-save');
+  return { ok: true };
+});
+
+// Apply one { path, value } change onto the cached snapshot so it mirrors
+// the renderer's live state without a round-trip.
+function _mirrorTuneChange(change) {
+  if (!_tuneSnapshot || !change || typeof change.path !== 'string') return;
+  const { path, value } = change;
+
+  if (path.startsWith('mesh:')) {
+    const name = path.slice(5);
+    const m = (_tuneSnapshot.meshes || []).find((x) => x.name === name);
+    if (m) m.visible = !!value;
+    return;
+  }
+
+  // Dotted path into the snapshot object (e.g. "lighting.key.intensity").
+  const parts = path.split('.');
+  let node = _tuneSnapshot;
+  for (let i = 0; i < parts.length - 1; i++) {
+    if (node == null) return;
+    node = node[parts[i]];
+  }
+  if (node != null) node[parts[parts.length - 1]] = value;
+}
 
 ipcMain.on('settings:close', () => {
   if (_win && !_win.isDestroyed()) _win.close();

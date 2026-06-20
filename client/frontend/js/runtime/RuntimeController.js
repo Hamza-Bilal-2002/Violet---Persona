@@ -13,8 +13,8 @@ from '../core/controls.js';
 import { setupLighting }
 from '../core/lighting.js';
 
-import { setupGUI }
-from '../ui/debugGUI.js';
+import { createTuning }
+from './tuning.js';
 
 import { AvatarRuntime }
 from './AvatarRuntime.js';
@@ -108,60 +108,38 @@ export class RuntimeController {
       this.renderer.domElement.style.opacity =
   '1';
     // ======================
-    // DEBUG GUI
+    // AVATAR TUNING BRIDGE
     // ======================
+    //
+    // The old in-overlay lil-gui debug bar is gone (it forced the whole
+    // transparent window out of click-through whenever it was open). The
+    // tuning controls now live in the Electron Settings window; this
+    // bridges its changes to the live three.js objects via main-process
+    // IPC. No-op in browser dev mode where personaShell is undefined.
 
-    this.debugGui =
-      setupGUI(
+    this.tuning =
+      createTuning({
+        vrm:      this.avatarRuntime.currentVRM,
+        lights:   this.lights,
+        camera:   this.camera,
+        controls: this.controls,
+      });
 
-        this.avatarRuntime
-          .expressionManager,
+    if (window.personaShell) {
 
-        this.avatarRuntime
-          .animationManager,
+      // Apply each control change coming back from the Settings window.
+      if (typeof window.personaShell.onTune === 'function') {
+        window.personaShell.onTune((change) => {
+          this.tuning.apply(change);
+        });
+      }
 
-        this.avatarRuntime
-          .currentVRM,
-
-        this.avatarRuntime
-          ._boundingSphereHelper,
-
-        this.lights,
-
-        this.camera,
-
-        this.controls,
-
-      );
-
-    // Wire the Electron tray "Debug GUI" toggle to the lil-gui
-    // visibility. No-op in browser dev mode where personaShell
-    // is undefined.
-
-    if (
-      window.personaShell &&
-      typeof window.personaShell.onToggleDebugGui === 'function'
-    ) {
-
-      window.personaShell.onToggleDebugGui(
-        (visible) => {
-
-          if (!this.debugGui) {
-            return;
-          }
-
-          if (visible) {
-
-            this.debugGui.show();
-
-          } else {
-
-            this.debugGui.hide();
-
-          }
-
-        }
-      );
+      // Settings window asked to persist the current look.
+      if (typeof window.personaShell.onTuneSave === 'function') {
+        window.personaShell.onTuneSave(() => {
+          this.tuning.save();
+        });
+      }
 
     }
 
@@ -176,6 +154,15 @@ export class RuntimeController {
     // their display state, but the live objects are correct).
 
     await this._loadAndApplySettings();
+
+    // Snapshot AFTER applying persisted settings so the Settings window's
+    // sliders open at the saved values, not the construction-time defaults.
+    if (
+      window.personaShell &&
+      typeof window.personaShell.tuneReady === 'function'
+    ) {
+      window.personaShell.tuneReady(this.tuning.snapshot());
+    }
 
     // ======================
     // UPDATE LOOP

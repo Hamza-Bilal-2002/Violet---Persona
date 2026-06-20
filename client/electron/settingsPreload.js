@@ -21,6 +21,11 @@ contextBridge.exposeInMainWorld('settingsShell', {
   memoryView:  () => ipcRenderer.send('settings:memory-view'),
   memoryReset: () => ipcRenderer.invoke('settings:memory-reset'),
 
+  // Avatar tuning
+  tuneGet:  ()       => ipcRenderer.invoke('settings:tune-get'),
+  tuneSet:  (change) => ipcRenderer.invoke('settings:tune-set', change),
+  tuneSave: ()       => ipcRenderer.invoke('settings:tune-save'),
+
   // Offline mode
   saveOffline: (patch) => ipcRenderer.invoke('settings:save-offline', patch),
 
