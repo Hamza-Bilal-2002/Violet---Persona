@@ -1,55 +1,60 @@
-// Persona desktop shell — client-side GPT fallback (Tier-2, basic mode).
+// Persona desktop shell — client-side cloud fallback (Tier-2, basic mode).
 //
 // When the backend (and the local model behind it) is unreachable, the
 // renderer's BackendClient flips to basic mode and routes user turns here
-// via the 'persona:fallback-chat' IPC channel. We call OpenAI directly
-// from the MAIN process so:
-//   - the API key never lives in the renderer (it's read from userData),
-//   - there's no browser CORS dance,
-//   - the key is never committed (it's per-device, in violet-settings.json
-//     or the OPENAI_API_KEY env var as a dev convenience).
+// via the 'persona:fallback-chat' IPC channel. We call the configured
+// cloud provider directly from the MAIN process so:
+//   - API keys never live in the renderer (read from userData),
+//   - no browser CORS dance,
+//   - keys are never committed (per-device, in violet-settings.json).
 //
-// Basic mode is talk-only: no tools, no function-calling, no memory. This
-// module just relays messages -> reply text. The renderer builds the
-// system prompt (basic profile + limited personality); we don't shape it
-// here, only carry it.
+// Supports two providers, configurable from Tray → Offline Mode Settings:
+//   openai  → api.openai.com        (gpt-4o-mini)
+//   gemini  → generativelanguage… OpenAI-compat endpoint (gemini-2.5-flash)
+//
+// Basic mode is talk-only: no tools, no function-calling, no memory.
 
 'use strict';
 
 const { loadSettings } = require('./userSettings');
 
-const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
+const PROVIDERS = {
+  openai: {
+    url:   'https://api.openai.com/v1/chat/completions',
+    model: 'gpt-4o-mini',
+    keyFn: (s) => (s && s.openaiApiKey) || process.env.OPENAI_API_KEY || '',
+  },
+  gemini: {
+    // Gemini exposes an OpenAI-compatible REST surface — same request shape,
+    // same response shape, different base URL and key.
+    url:   'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+    model: 'gemini-2.5-flash',
+    keyFn: (s) => (s && s.geminiApiKey) || process.env.GEMINI_API_KEY || '',
+  },
+};
 
-// Matches the backend's testing model so basic mode sounds consistent
-// with full mode. Cheap + fast, appropriate for light fallback chat.
-const DEFAULT_MODEL = 'gpt-4o-mini';
-
-// Read the OpenAI key from per-device settings, falling back to the env
-// var. Returns null when neither is set — the renderer surfaces a "add a
-// key" notice in that case rather than silently failing.
-function getApiKey() {
-  const settings = loadSettings();
-  if (settings && typeof settings.openaiApiKey === 'string') {
-    const k = settings.openaiApiKey.trim();
-    if (k) return k;
-  }
-  if (process.env.OPENAI_API_KEY) {
-    return process.env.OPENAI_API_KEY.trim();
-  }
-  return null;
+function _resolveProvider() {
+  const s        = loadSettings() || {};
+  const id       = (s.fallbackProvider && PROVIDERS[s.fallbackProvider])
+                   ? s.fallbackProvider
+                   : 'openai';
+  const provider = PROVIDERS[id];
+  const key      = provider.keyFn(s).trim();
+  return { id, provider, key };
 }
 
 function hasApiKey() {
-  return !!getApiKey();
+  const { key } = _resolveProvider();
+  return !!key;
 }
 
 // Run one basic-mode completion. Returns { text } on success or
-// { error } on failure — never throws, so the renderer can map the error
-// to a user-facing notifier without a try/catch around the IPC call.
+// { error } on failure — never throws.
 async function runFallbackChat({ messages, model } = {}) {
 
-  const apiKey = getApiKey();
-  if (!apiKey) {
+  const { id, provider, key } = _resolveProvider();
+
+  if (!key) {
     return { error: 'no-api-key' };
   }
 
@@ -59,29 +64,24 @@ async function runFallbackChat({ messages, model } = {}) {
 
   try {
 
-    const res = await fetch(OPENAI_URL, {
+    const res = await fetch(provider.url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
+        Authorization:  `Bearer ${key}`,
       },
       body: JSON.stringify({
-        model: model || DEFAULT_MODEL,
+        model:       model || provider.model,
         messages,
-        // Basic mode replies are short and conversational; cap tokens so
-        // a runaway response can't rack up cost or stall the avatar.
-        max_tokens: 220,
+        max_tokens:  220,
         temperature: 0.85,
       }),
     });
 
     if (!res.ok) {
       const detail = await res.text().catch(() => '');
-      console.error(
-        `[fallbackChat] OpenAI ${res.status}:`,
-        detail.slice(0, 300)
-      );
-      return { error: `openai-${res.status}` };
+      console.error(`[fallbackChat] ${id} ${res.status}:`, detail.slice(0, 300));
+      return { error: `${id}-${res.status}` };
     }
 
     const data = await res.json();

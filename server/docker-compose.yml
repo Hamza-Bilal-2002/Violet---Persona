@@ -148,8 +148,8 @@ services:
     restart: unless-stopped
     networks:
       - persona_net
-    # GPU passthrough — uncomment on the PC (needs NVIDIA Container
-    # Toolkit) so the model runs on the GPU instead of CPU:
+    # GPU passthrough — Linux/NVIDIA only. On Windows with AMD,
+    # run Ollama natively instead (see LOCAL_LLM_URL in api/.env).
     # deploy:
     #   resources:
     #     reservations:

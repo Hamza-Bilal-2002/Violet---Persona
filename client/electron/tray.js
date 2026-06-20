@@ -13,7 +13,8 @@ const {
 
 const spotify = require('./spotify');
 const { showQr, hideQr } = require('./qrWindow');
-const { createMemoryWindow } = require('./memoryWindow');
+const { createMemoryWindow }   = require('./memoryWindow');
+const { createSettingsWindow } = require('./settingsWindow');
 const whatsapp = require('./tools/whatsapp');
 
 // Backend api base. Hardcoded localhost to match the renderer's other
@@ -243,6 +244,11 @@ function rebuildTrayMenu() {
         if (w) w.webContents.send('persona:toggle-debug-gui', true);
         rebuildTrayMenu();
       },
+    },
+
+    {
+      label: 'Offline Mode Settings...',
+      click: () => createSettingsWindow(),
     },
 
     { type: 'separator' },

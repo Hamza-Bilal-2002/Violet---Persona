@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Offline Mode Settings</title>
+<style>
+  :root {
+    --bg:     #0d0d0f;
+    --panel:  rgba(255,255,255,0.035);
+    --border: rgba(255,255,255,0.08);
+    --text:   rgba(255,255,255,0.92);
+    --muted:  rgba(255,255,255,0.4);
+    --faint:  rgba(255,255,255,0.18);
+    --amber:  #ffc83c;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, 'Segoe UI', system-ui, sans-serif;
+    font-size: 13px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    user-select: none;
+  }
+
+  /* Title bar */
+  .titlebar {
+    -webkit-app-region: drag;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 13px 14px 12px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .titlebar h1 {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  .titlebar .subtitle {
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .spacer { flex: 1; }
+  .x {
+    -webkit-app-region: no-drag;
+    width: 22px; height: 22px;
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 15px;
+    line-height: 1;
+  }
+  .x:hover { background: rgba(255,80,80,0.18); color: #ff8080; }
+
+  /* Content */
+  .content {
+    flex: 1;
+    padding: 18px 16px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    overflow-y: auto;
+  }
+
+  /* Section */
+  .section-label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+
+  /* Provider radios */
+  .providers {
+    display: flex;
+    gap: 8px;
+  }
+  .provider-card {
+    flex: 1;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+    cursor: pointer;
+    background: var(--panel);
+    transition: border-color 0.15s, background 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+  .provider-card:hover { background: rgba(255,255,255,0.055); }
+  .provider-card.selected {
+    border-color: var(--amber);
+    background: rgba(255,200,60,0.08);
+  }
+  .provider-card input[type="radio"] {
+    accent-color: var(--amber);
+    width: 14px; height: 14px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .provider-info {}
+  .provider-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .provider-model {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 1px;
+  }
+
+  /* Key inputs */
+  .key-row {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .key-label {
+    font-size: 11px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .key-label .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .dot-openai { background: #74c7ec; }
+  .dot-gemini { background: #a6e3a1; }
+  .key-input-wrap {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    overflow: hidden;
+    transition: border-color 0.15s;
+  }
+  .key-input-wrap:focus-within { border-color: rgba(255,200,60,0.4); }
+  .key-input-wrap input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    padding: 8px 11px;
+    color: var(--text);
+    font-size: 12px;
+    font-family: 'Consolas', 'SF Mono', monospace;
+    min-width: 0;
+  }
+  .key-input-wrap input::placeholder { color: var(--faint); font-family: inherit; }
+  .reveal {
+    -webkit-app-region: no-drag;
+    padding: 0 10px;
+    height: 100%;
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 14px;
+    display: flex; align-items: center;
+    transition: color 0.12s;
+  }
+  .reveal:hover { color: var(--text); }
+
+  /* Status line */
+  .status {
+    font-size: 11px;
+    color: var(--muted);
+    min-height: 14px;
+    text-align: center;
+  }
+  .status.ok    { color: #4ade80; }
+  .status.error { color: #f38ba8; }
+
+  /* Footer */
+  .footer {
+    padding: 0 16px 16px;
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    flex-shrink: 0;
+  }
+  button {
+    -webkit-app-region: no-drag;
+    padding: 7px 18px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.13s, border-color 0.13s;
+  }
+  .btn-cancel {
+    background: var(--panel);
+    color: var(--muted);
+  }
+  .btn-cancel:hover { background: rgba(255,255,255,0.06); color: var(--text); }
+  .btn-save {
+    background: var(--amber);
+    color: #0d0d0f;
+    border-color: var(--amber);
+  }
+  .btn-save:hover { background: #ffd966; border-color: #ffd966; }
+  .btn-save:disabled { opacity: 0.5; cursor: default; }
+
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<div class="titlebar">
+  <h1>Offline Mode</h1>
+  <span class="subtitle">used when the backend is unreachable</span>
+  <div class="spacer"></div>
+  <div class="x" id="closeBtn">✕</div>
+</div>
+
+<div class="content">
+
+  <!-- Provider -->
+  <div>
+    <div class="section-label">Cloud Provider</div>
+    <div class="providers">
+      <label class="provider-card" id="card-openai">
+        <input type="radio" name="provider" value="openai">
+        <div class="provider-info">
+          <div class="provider-name">OpenAI</div>
+          <div class="provider-model">gpt-4o-mini</div>
+        </div>
+      </label>
+      <label class="provider-card" id="card-gemini">
+        <input type="radio" name="provider" value="gemini">
+        <div class="provider-info">
+          <div class="provider-name">Gemini</div>
+          <div class="provider-model">2.5 Flash</div>
+        </div>
+      </label>
+    </div>
+  </div>
+
+  <!-- Keys -->
+  <div>
+    <div class="section-label">API Keys</div>
+    <div style="display:flex;flex-direction:column;gap:10px;">
+
+      <div class="key-row">
+        <div class="key-label">
+          <span class="dot dot-openai"></span>OpenAI key
+        </div>
+        <div class="key-input-wrap">
+          <input type="password" id="openaiKey" placeholder="sk-proj-…" autocomplete="off" spellcheck="false">
+          <button class="reveal" data-target="openaiKey" title="Show / hide">👁</button>
+        </div>
+      </div>
+
+      <div class="key-row">
+        <div class="key-label">
+          <span class="dot dot-gemini"></span>Gemini key
+        </div>
+        <div class="key-input-wrap">
+          <input type="password" id="geminiKey" placeholder="AIza…" autocomplete="off" spellcheck="false">
+          <button class="reveal" data-target="geminiKey" title="Show / hide">👁</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="status" id="status"></div>
+
+</div>
+
+<div class="footer">
+  <button class="btn-cancel" id="cancelBtn">Cancel</button>
+  <button class="btn-save"   id="saveBtn">Save</button>
+</div>
+
+<script>
+  const shell = window.settingsShell;
+
+  const radios    = document.querySelectorAll('input[name="provider"]');
+  const cards     = document.querySelectorAll('.provider-card');
+  const openaiKey = document.getElementById('openaiKey');
+  const geminiKey = document.getElementById('geminiKey');
+  const status    = document.getElementById('status');
+  const saveBtn   = document.getElementById('saveBtn');
+
+  function updateCards() {
+    radios.forEach((r) => {
+      const card = document.getElementById('card-' + r.value);
+      if (card) card.classList.toggle('selected', r.checked);
+    });
+  }
+
+  radios.forEach((r) => r.addEventListener('change', updateCards));
+
+  document.querySelectorAll('.reveal').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const inp = document.getElementById(btn.dataset.target);
+      inp.type = inp.type === 'password' ? 'text' : 'password';
+    });
+  });
+
+  document.getElementById('closeBtn').addEventListener('click',  () => shell.close());
+  document.getElementById('cancelBtn').addEventListener('click', () => shell.close());
+
+  saveBtn.addEventListener('click', async () => {
+    saveBtn.disabled = true;
+    status.className = 'status';
+    status.textContent = 'Saving…';
+
+    const provider = [...radios].find((r) => r.checked)?.value || 'openai';
+
+    try {
+      await shell.save({
+        fallbackProvider: provider,
+        openaiApiKey:     openaiKey.value.trim(),
+        geminiApiKey:     geminiKey.value.trim(),
+      });
+      status.className = 'status ok';
+      status.textContent = 'Saved.';
+      setTimeout(() => shell.close(), 700);
+    } catch (err) {
+      status.className = 'status error';
+      status.textContent = 'Save failed — ' + (err && err.message || String(err));
+      saveBtn.disabled = false;
+    }
+  });
+
+  // Load current settings on open
+  shell.load().then((s) => {
+    radios.forEach((r) => { r.checked = r.value === s.fallbackProvider; });
+    openaiKey.value = s.openaiApiKey || '';
+    geminiKey.value = s.geminiApiKey || '';
+    updateCards();
+  });
+</script>
+</body>
+</html>
