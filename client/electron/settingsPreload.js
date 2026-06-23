@@ -29,6 +29,15 @@ contextBridge.exposeInMainWorld('settingsShell', {
   // Offline mode
   saveOffline: (patch) => ipcRenderer.invoke('settings:save-offline', patch),
 
+  // AI Model (backend brain switch)
+  llmGet: ()       => ipcRenderer.invoke('settings:llm-get'),
+  llmSet: (patch)  => ipcRenderer.invoke('settings:llm-set', patch),
+
+  // Personalities (create / edit / delete)
+  personasGet:   ()        => ipcRenderer.invoke('settings:personas-get'),
+  personaSave:   (persona) => ipcRenderer.invoke('settings:persona-save', persona),
+  personaDelete: (id)      => ipcRenderer.invoke('settings:persona-delete', id),
+
   // System
   pinTaskbar: () => ipcRenderer.invoke('settings:pin-taskbar'),
 

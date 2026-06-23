@@ -110,6 +110,23 @@ app.add_middleware(
 )
 
 
+# Live WebSocket connections, each as {ws, session, conn}. Lets REST
+# endpoints (brain switch, personality edits) push refreshed frames to
+# connected clients and re-sync live session prompts without a reconnect.
+# Single-user app, so this is normally 0-1 entries.
+_LIVE: list[dict] = []
+
+
+async def _broadcast(frame: dict) -> None:
+    """Send a frame to every connected client, dropping dead sockets."""
+    payload = json.dumps(frame)
+    for entry in list(_LIVE):
+        try:
+            await entry["ws"].send_text(payload)
+        except Exception:
+            pass
+
+
 @app.get("/")
 async def root():
     return {"name": f"{settings.agent_name.lower()}-backend", "version": "0.1.0"}
@@ -244,6 +261,132 @@ async def personalities_list():
     return _personalities_frame()
 
 
+@app.get("/personalities/full")
+async def personalities_full():
+    """Full roster (with prompts + edit flags) + voice/emotion options —
+    for the Settings personality editor."""
+    return {
+        "active": personalities.active_id(),
+        "personalities": personalities.list_full(),
+        "options": personalities.options(),
+    }
+
+
+class PersonalitySave(BaseModel):
+    id: str | None = None
+    name: str
+    prompt: str
+    voice: str = ""
+    default_emotion: str = "relaxed"
+
+
+async def _after_roster_change(changed_id: str | None) -> None:
+    """Push the refreshed roster to every client, and if the changed
+    personality is the live active one, re-apply its prompt + voice to each
+    non-private session so the edit takes effect without a reconnect."""
+    await _broadcast(_personalities_frame())
+    if changed_id and changed_id == personalities.active_id():
+        active_p = personalities.active()
+        if not active_p:
+            return
+        for entry in list(_LIVE):
+            if entry["conn"]["mode"] is not None:
+                continue  # don't disturb a live private scene
+            try:
+                entry["session"].set_system_prompt(
+                    build_system_prompt(active_p.get("prompt"))
+                )
+                await entry["ws"].send_text(
+                    json.dumps(_personality_frame(active_p))
+                )
+            except Exception:
+                pass
+
+
+@app.post("/personalities")
+async def personality_save(body: PersonalitySave):
+    """Create or edit a personality (writable /data overlay)."""
+    item = personalities.save(body.model_dump())
+    if item is None:
+        return {"ok": False, "error": "name and prompt are required"}
+    await _after_roster_change(item["id"])
+    return {"ok": True, "personality": item}
+
+
+@app.delete("/personalities/{pid}")
+async def personality_delete(pid: str):
+    """Delete a user personality, or revert a baked one to its original."""
+    ok, message = personalities.delete(pid)
+    if ok:
+        await _after_roster_change(personalities.active_id())
+    return {"ok": ok, "message": message}
+
+
+# ── LLM brain selection (provider switch) ────────────────────────────────────
+
+class LLMConfigUpdate(BaseModel):
+    provider: str | None = None          # auto | local | nvidia | openai
+    private_provider: str | None = None  # local | nvidia (deep/text routing)
+    nvidia_model: str | None = None
+    nvidia_key: str | None = None        # set/clear the NVIDIA API key
+
+
+async def _resync_private_capability() -> None:
+    """After the private-mode routing changes, push refreshed deep/text
+    capability frames to every live client so their tray toggles update
+    (greyed vs available) without a reconnect."""
+    avail = llm_client.private_available()
+    for entry in list(_LIVE):
+        conn = entry["conn"]
+        try:
+            await entry["ws"].send_text(json.dumps({
+                "type": "adult_mode",
+                "enabled": conn["mode"] == "deep",
+                "available": avail,
+            }))
+            await entry["ws"].send_text(json.dumps(_text_mode_frame(
+                enabled=conn["mode"] == "text",
+                available=avail,
+            )))
+        except Exception:
+            pass
+
+
+@app.get("/llm/config")
+async def llm_config_get():
+    """Current brain selection + provider availability for Settings."""
+    return llm_client.runtime_config()
+
+
+@app.post("/llm/config")
+async def llm_config_set(body: LLMConfigUpdate):
+    """Switch the active brain and/or the private-mode provider. Takes
+    effect on the next turn for live sessions (the provider is resolved
+    per turn). Returns the updated config."""
+    errors: list[str] = []
+    private_changed = False
+
+    if body.nvidia_key is not None:
+        llm_client.set_nvidia_key(body.nvidia_key)
+    if body.provider is not None:
+        if not llm_client.set_provider(body.provider):
+            errors.append(f"unknown provider: {body.provider}")
+    if body.nvidia_model is not None:
+        if not llm_client.set_nvidia_model(body.nvidia_model):
+            errors.append("nvidia_model cannot be empty")
+    if body.private_provider is not None:
+        if llm_client.set_private_provider(body.private_provider):
+            private_changed = True
+        else:
+            errors.append(f"unknown private_provider: {body.private_provider}")
+
+    if private_changed:
+        await _resync_private_capability()
+
+    cfg = llm_client.runtime_config()
+    return {"ok": not errors, "errors": errors, "config": cfg}
+
+
 @app.websocket("/chat/ws")
 async def chat_ws(websocket: WebSocket):
     await websocket.accept()
@@ -285,6 +428,11 @@ async def chat_ws(websocket: WebSocket):
     # the local model; they're mutually exclusive.
     conn = {"mode": None}
 
+    # Register this connection so REST endpoints (brain switch, personality
+    # edits) can push refreshed frames + re-sync the live session prompt.
+    live_entry = {"ws": websocket, "session": session, "conn": conn}
+    _LIVE.append(live_entry)
+
     # Tell the client the personality roster + the active one so the tray
     # and the renderer's voice selection start in sync.
     try:
@@ -295,7 +443,7 @@ async def chat_ws(websocket: WebSocket):
         # they're even available (local model reachable) so the tray can
         # grey the toggles when there's no local model. The text-mode frame
         # also seeds the chat UI with the current scene + rules.
-        local_ok = llm_client.local_available()
+        local_ok = llm_client.private_available()
         await websocket.send_text(json.dumps({
             "type": "adult_mode",
             "enabled": False,
@@ -449,6 +597,11 @@ async def chat_ws(websocket: WebSocket):
         logger.info("client disconnected")
     except Exception:
         logger.exception("websocket loop crashed")
+    finally:
+        try:
+            _LIVE.remove(live_entry)
+        except ValueError:
+            pass
 
 
 def _parse_user_frame(raw: str) -> str:
@@ -573,7 +726,7 @@ async def _set_adult_mode(
 
     if want:
         # Hard gate: no local model -> do not enable, do not fall back.
-        if not llm_client.local_available():
+        if not llm_client.private_available():
             conn["mode"] = None
             session.set_require_local(False)
             await websocket.send_text(json.dumps({
@@ -700,7 +853,7 @@ async def _set_text_mode(
         return
 
     if want:
-        if not llm_client.local_available():
+        if not llm_client.private_available():
             conn["mode"] = None
             session.set_require_local(False)
             await websocket.send_text(json.dumps(_text_mode_frame(
@@ -770,7 +923,7 @@ async def _update_text_mode_config(
 
     await websocket.send_text(json.dumps(_text_mode_frame(
         enabled=(conn["mode"] == "text"),
-        available=llm_client.local_available(),
+        available=llm_client.private_available(),
     )))
 
 

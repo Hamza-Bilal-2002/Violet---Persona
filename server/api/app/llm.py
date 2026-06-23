@@ -27,7 +27,9 @@ have no built-in chat-session abstraction; we maintain the
 from __future__ import annotations
 
 import json
+import os
 import time
+from pathlib import Path
 
 import httpx
 from loguru import logger
@@ -41,6 +43,22 @@ from .tools import TOOL_DECLARATIONS
 # re-check. Short enough to notice the local server coming up / going
 # down within a few turns; long enough not to probe on every message.
 LOCAL_PROBE_TTL_SECONDS = 15.0
+
+
+# Runtime-mutable provider selection. The env vars (LLM_PROVIDER etc.)
+# are the seed defaults; once the user picks a brain in Settings we
+# persist the choice here so it survives restarts and overrides the env.
+# Mirrors the personalities active-file pattern — a tiny JSON in /data.
+_RUNTIME_PATH = Path(
+    os.environ.get("PERSONA_LLM_RUNTIME_PATH", "/data/llm_runtime.json")
+)
+
+# Brains the user can choose between.
+_VALID_PROVIDERS = ("auto", "local", "nvidia", "openai")
+# Which provider the local-locked private modes (deep/text) run on. Default
+# is the true on-device model so private content never leaves the machine;
+# 'nvidia' is an explicit, opt-in testing path chosen in Settings.
+_VALID_PRIVATE = ("local", "nvidia")
 
 
 # The system prompt has two halves:
@@ -405,14 +423,16 @@ class ChatSession:
             outgoing = self._messages
 
         if self._require_local:
-            # Hard provider lock (adult mode): local model ONLY. Refuse the
-            # turn if it isn't reachable — never fall back to a cloud
-            # provider with this content.
-            if not self._llm.local_available():
+            # Provider lock for the private modes (deep/text). By default this
+            # is the true on-device model ONLY — refuse rather than ever leak
+            # the content to a cloud provider. The user may opt this onto
+            # NVIDIA from Settings as a testing path (private_provider), in
+            # which case "available" + "provider" resolve to NVIDIA instead.
+            if not self._llm.private_available():
                 raise LocalModelRequiredError(
-                    "local model is not reachable"
+                    "private-mode model is not reachable"
                 )
-            client, model, _name = self._llm.local_provider()
+            client, model, _name = self._llm.private_provider()
         else:
             client, model, _name = self._llm.active_provider()
             if client is None:
@@ -513,19 +533,136 @@ class LLMClient:
         else:
             self._local = None
 
+        # ── NVIDIA NIM (cloud, OpenAI-compatible) ───────────────────
+        # A stronger Tier-1 brain than a CPU-bound local model. The key +
+        # model can be set from Settings (persisted to the runtime file);
+        # the env vars seed the defaults.
+        self._nvidia_url = (settings.NVIDIA_BASE_URL or "").rstrip("/")
+        self._nvidia_model = settings.NVIDIA_MODEL
+        self._nvidia_key = settings.NVIDIA_API_KEY
+        self._nvidia = None
+        self._build_nvidia()
+
+        # Seed selection from env, then let any persisted runtime choice
+        # (Settings) override it.
         self._provider_pref = (settings.LLM_PROVIDER or "auto").lower()
+        if self._provider_pref not in _VALID_PROVIDERS:
+            self._provider_pref = "auto"
+        self._private_pref = "local"  # deep/text default: on-device only
         self._fallback_mode = (settings.FALLBACK_MODE or "full").lower()
+        self._load_runtime()
 
         # Cached local reachability probe: (checked_at, available).
         self._local_probe: tuple[float, bool] = (0.0, False)
 
-        self._configured = bool(self._openai or self._local)
+        self._configured = bool(self._openai or self._local or self._nvidia)
         logger.info(
             f"LLM provider pref: {self._provider_pref} | "
+            f"private: {self._private_pref} | "
             f"openai_model: {self._openai_model} | "
             f"local: {self._local_url or 'none'} ({self._local_model}) | "
+            f"nvidia: {self._nvidia_model if self._nvidia else 'none'} | "
             f"fallback_mode: {self._fallback_mode}"
         )
+
+    # ── runtime config (persisted brain selection) ──────────────────
+
+    def _build_nvidia(self) -> None:
+        """(Re)construct the NVIDIA client from the current key + base URL.
+        Becomes None when either is missing (provider then unavailable)."""
+        if self._nvidia_key and self._nvidia_url:
+            self._nvidia = OpenAI(
+                base_url=self._nvidia_url, api_key=self._nvidia_key
+            )
+        else:
+            self._nvidia = None
+
+    def _load_runtime(self) -> None:
+        """Override env defaults with the persisted Settings choice, if any."""
+        try:
+            data = json.loads(_RUNTIME_PATH.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return
+        except Exception as e:
+            logger.warning(f"llm: could not read runtime config: {e}")
+            return
+        if not isinstance(data, dict):
+            return
+        prov = str(data.get("provider", "")).lower()
+        if prov in _VALID_PROVIDERS:
+            self._provider_pref = prov
+        priv = str(data.get("private_provider", "")).lower()
+        if priv in _VALID_PRIVATE:
+            self._private_pref = priv
+        nv_model = data.get("nvidia_model")
+        if isinstance(nv_model, str) and nv_model.strip():
+            self._nvidia_model = nv_model.strip()
+        nv_key = data.get("nvidia_key")
+        if isinstance(nv_key, str) and nv_key.strip():
+            self._nvidia_key = nv_key.strip()
+        self._build_nvidia()
+        logger.info(
+            f"llm: runtime config loaded (provider={self._provider_pref}, "
+            f"private={self._private_pref}, nvidia={'set' if self._nvidia else 'none'})"
+        )
+
+    def _save_runtime(self) -> None:
+        try:
+            _RUNTIME_PATH.parent.mkdir(parents=True, exist_ok=True)
+            _RUNTIME_PATH.write_text(
+                json.dumps({
+                    "provider": self._provider_pref,
+                    "private_provider": self._private_pref,
+                    "nvidia_model": self._nvidia_model,
+                    "nvidia_key": self._nvidia_key,
+                }),
+                encoding="utf-8",
+            )
+        except Exception as e:
+            logger.warning(f"llm: could not persist runtime config: {e}")
+
+    def set_nvidia_key(self, key: str) -> bool:
+        """Set (or clear) the NVIDIA API key and rebuild the client. An empty
+        string disables the NVIDIA provider. Persisted."""
+        self._nvidia_key = (key or "").strip()
+        self._build_nvidia()
+        self._save_runtime()
+        logger.info(f"llm: nvidia key {'set' if self._nvidia else 'cleared'}")
+        return True
+
+    def set_provider(self, name: str) -> bool:
+        """Switch the active brain for normal chat. Persisted. Takes effect
+        on the next turn (live sessions resolve the provider per turn)."""
+        name = (name or "").lower()
+        if name not in _VALID_PROVIDERS:
+            return False
+        self._provider_pref = name
+        self._save_runtime()
+        logger.info(f"llm: provider -> {name}")
+        return True
+
+    def set_private_provider(self, name: str) -> bool:
+        """Choose which provider the private modes (deep/text) run on.
+        'local' keeps them on-device (default); 'nvidia' is the opt-in
+        cloud testing path. Persisted."""
+        name = (name or "").lower()
+        if name not in _VALID_PRIVATE:
+            return False
+        self._private_pref = name
+        self._save_runtime()
+        logger.info(f"llm: private-mode provider -> {name}")
+        return True
+
+    def set_nvidia_model(self, model: str) -> bool:
+        """Change which NVIDIA model id is used (e.g. switch between
+        llama-3.3-70b-instruct and a Nemotron). Persisted."""
+        model = (model or "").strip()
+        if not model:
+            return False
+        self._nvidia_model = model
+        self._save_runtime()
+        logger.info(f"llm: nvidia model -> {model}")
+        return True
 
     # ── provider selection ──────────────────────────────────────────
 
@@ -554,9 +691,12 @@ class LLMClient:
         pref = self._provider_pref
         if pref == "openai":
             return (self._openai, self._openai_model, "openai")
+        if pref == "nvidia":
+            return (self._nvidia, self._nvidia_model, "nvidia")
         if pref == "local":
             return (self._local, self._local_model, "local")
-        # auto
+        # auto: prefer the on-device model when reachable, else GPT. NVIDIA
+        # is never selected automatically — it's an explicit, paid choice.
         if self._local_available():
             return (self._local, self._local_model, "local")
         return (self._openai, self._openai_model, "openai")
@@ -565,8 +705,7 @@ class LLMClient:
         return self.active_provider()[2]
 
     def local_available(self) -> bool:
-        """Public reachability check for the local model — used to gate
-        adult mode (which is local-only) on toggle and per turn."""
+        """Public reachability check for the true on-device local model."""
         return self._local_available()
 
     def local_provider(self) -> tuple:
@@ -575,16 +714,63 @@ class LLMClient:
         first — this returns (None, ...) when no local model is configured."""
         return (self._local, self._local_model, "local")
 
+    # ── private-mode provider (deep/text lock) ──────────────────────
+
+    def private_available(self) -> bool:
+        """Whether the private modes (deep/text) can run right now. Resolves
+        against the configured private provider: the on-device model's
+        reachability by default, or NVIDIA being configured when the user
+        has opted the private modes onto it for testing."""
+        if self._private_pref == "nvidia":
+            return self._nvidia is not None
+        return self._local_available()
+
+    def private_provider(self) -> tuple:
+        """Return (client, model, name) the private modes run on. NVIDIA only
+        when the user explicitly chose it; otherwise the on-device model."""
+        if self._private_pref == "nvidia":
+            return (self._nvidia, self._nvidia_model, "nvidia")
+        return (self._local, self._local_model, "local")
+
+    def runtime_config(self) -> dict:
+        """Full brain-selection state for the Settings UI."""
+        return {
+            "provider": self._provider_pref,
+            "private_provider": self._private_pref,
+            "active_provider": self.active_provider_name(),
+            "providers": {
+                "local": {
+                    "configured": self._local is not None,
+                    "url": self._local_url or None,
+                    "model": self._local_model,
+                    "reachable": self._local_available(),
+                },
+                "nvidia": {
+                    "configured": self._nvidia is not None,
+                    "key_set": bool(self._nvidia_key),
+                    "model": self._nvidia_model,
+                    "base_url": self._nvidia_url or None,
+                },
+                "openai": {
+                    "configured": self._openai is not None,
+                    "model": self._openai_model,
+                },
+            },
+        }
+
     def status(self) -> dict:
         """Provider status for /health and (later) the WS mode frame."""
         name = self.active_provider_name()
         return {
             "provider_pref": self._provider_pref,
+            "private_provider": self._private_pref,
             "active_provider": name,
             "local_url": self._local_url or None,
             "local_reachable": self._local_available(),
+            "nvidia_configured": self._nvidia is not None,
+            "nvidia_model": self._nvidia_model if self._nvidia else None,
             "fallback_mode": self._fallback_mode,
-            "using_fallback": name == "openai" and self._provider_pref != "openai",
+            "using_fallback": name == "openai" and self._provider_pref not in ("openai",),
         }
 
     def create_session(

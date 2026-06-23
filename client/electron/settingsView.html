@@ -164,6 +164,7 @@
 
   /* ── Provider cards ──────────────────────────────────────────── */
   .providers { display: flex; gap: 9px; }
+  .providers.col { flex-direction: column; }
   .provider {
     flex: 1; display: flex; align-items: center; gap: 9px;
     border: 1px solid var(--border); border-radius: 11px;
@@ -173,8 +174,78 @@
   .provider:hover { background: var(--panel-2); }
   .provider.selected { border-color: var(--amber); background: var(--amber-dim); }
   .provider input { accent-color: var(--amber); width: 14px; height: 14px; cursor: pointer; }
+  .provider .pgrow { flex: 1; min-width: 0; }
   .provider .pname { font-size: 12.5px; font-weight: 600; }
-  .provider .pmodel { font-size: 11px; color: var(--muted); margin-top: 1px; }
+  .provider .pmodel {
+    font-size: 11px; color: var(--muted); margin-top: 1px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .provider.off { opacity: 0.5; }
+  .provider .ptag {
+    font-size: 9.5px; font-weight: 700; letter-spacing: 0.05em;
+    padding: 2px 6px; border-radius: 5px; flex-shrink: 0;
+  }
+  .ptag.live { background: rgba(74,222,128,0.16); color: var(--green); }
+  .ptag.na   { background: rgba(255,255,255,0.07); color: var(--faint); }
+
+  /* ── Inline readout line ─────────────────────────────────────── */
+  .readline {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 11.5px; color: var(--muted);
+  }
+  .readline b { color: var(--text); font-weight: 600; }
+
+  /* ── Warning callout ─────────────────────────────────────────── */
+  .warn {
+    display: flex; gap: 9px; align-items: flex-start;
+    background: rgba(255,200,60,0.07); border: 1px solid rgba(255,200,60,0.22);
+    border-radius: 10px; padding: 10px 12px;
+    font-size: 11.5px; color: rgba(255,225,160,0.9); line-height: 1.4;
+  }
+  .warn .wico { font-size: 13px; flex-shrink: 0; }
+
+  /* ── Select + textarea ───────────────────────────────────────── */
+  select, textarea {
+    font-family: inherit; color: var(--text); font-size: 12px;
+    background: rgba(0,0,0,0.25); border: 1px solid var(--border);
+    border-radius: 9px; padding: 8px 11px; outline: none; width: 100%;
+    transition: border-color 0.14s;
+  }
+  select:focus, textarea:focus { border-color: rgba(255,200,60,0.45); }
+  select option { background: #15151a; color: var(--text); }
+  textarea {
+    resize: vertical; min-height: 120px; line-height: 1.5;
+    font-family: 'Consolas', 'SF Mono', monospace; font-size: 11.5px;
+  }
+  .field .ftext { display: flex; flex-direction: column; gap: 6px; }
+  .field-row { display: flex; gap: 11px; }
+  .field-row .field { flex: 1; min-width: 0; }
+  .text-input {
+    background: rgba(0,0,0,0.25); border: 1px solid var(--border);
+    border-radius: 9px; padding: 8px 11px; color: var(--text);
+    font-size: 12px; font-family: inherit; outline: none; width: 100%;
+    transition: border-color 0.14s;
+  }
+  .text-input:focus { border-color: rgba(255,200,60,0.45); }
+
+  /* ── Personality list ────────────────────────────────────────── */
+  .plist { display: flex; flex-direction: column; gap: 6px; }
+  .pitem {
+    display: flex; align-items: center; gap: 10px;
+    border: 1px solid var(--border); border-radius: 10px;
+    padding: 9px 12px; cursor: pointer; background: var(--panel);
+    transition: border-color 0.14s, background 0.14s;
+  }
+  .pitem:hover { background: var(--panel-2); }
+  .pitem.sel { border-color: var(--amber); background: var(--amber-dim); }
+  .pitem .pi-name { font-size: 12.5px; font-weight: 600; flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .badge {
+    font-size: 9.5px; font-weight: 700; letter-spacing: 0.04em;
+    padding: 2px 6px; border-radius: 5px; flex-shrink: 0;
+  }
+  .badge.active  { background: var(--amber-dim); color: var(--amber); }
+  .badge.builtin { background: rgba(255,255,255,0.07); color: var(--faint); }
 
   /* ── Key inputs ──────────────────────────────────────────────── */
   .field { display: flex; flex-direction: column; gap: 6px; }
@@ -267,6 +338,8 @@
   <!-- Sidebar -->
   <nav class="rail">
     <div class="nav active" data-tab="behavior"><span class="ico">◐</span>Behavior</div>
+    <div class="nav" data-tab="model"><span class="ico">◈</span>AI Model</div>
+    <div class="nav" data-tab="personalities"><span class="ico">☻</span>Personalities</div>
     <div class="nav" data-tab="avatar"><span class="ico">◇</span>Avatar</div>
     <div class="nav" data-tab="connectivity"><span class="ico">⇄</span>Connectivity</div>
     <div class="nav" data-tab="memory"><span class="ico">✶</span>Memory</div>
@@ -326,6 +399,142 @@
         <div class="sub">
           <span class="label">On by default at launch</span>
           <label class="switch sm"><input type="checkbox" id="d-opacity"><span class="track"></span></label>
+        </div>
+      </div>
+    </section>
+
+    <!-- AI MODEL -->
+    <section class="panel" data-panel="model">
+      <div class="panel-head">
+        <h2>AI Model</h2>
+        <p>Which brain answers you. Changes take effect on your next message.</p>
+      </div>
+
+      <div class="card stack">
+        <div class="providers col" id="brain-list">
+          <label class="provider" data-brain="auto">
+            <input type="radio" name="brain" value="auto">
+            <div class="pgrow"><div class="pname">Auto</div>
+              <div class="pmodel">Local model when running, else OpenAI</div></div>
+          </label>
+          <label class="provider" data-brain="local">
+            <input type="radio" name="brain" value="local">
+            <div class="pgrow"><div class="pname">Local — Ollama</div>
+              <div class="pmodel" id="b-local-model">on-device</div></div>
+            <span class="ptag na" id="b-local-tag">—</span>
+          </label>
+          <label class="provider" data-brain="nvidia">
+            <input type="radio" name="brain" value="nvidia">
+            <div class="pgrow"><div class="pname">NVIDIA — cloud</div>
+              <div class="pmodel" id="b-nvidia-model">not configured</div></div>
+            <span class="ptag na" id="b-nvidia-tag">—</span>
+          </label>
+          <label class="provider" data-brain="openai">
+            <input type="radio" name="brain" value="openai">
+            <div class="pgrow"><div class="pname">OpenAI — cloud</div>
+              <div class="pmodel" id="b-openai-model">gpt-4o-mini</div></div>
+            <span class="ptag na" id="b-openai-tag">—</span>
+          </label>
+        </div>
+
+        <div class="readline">
+          <span class="dot off" id="brain-active-dot"></span>
+          Currently answering:&nbsp;<b id="brain-active">…</b>
+        </div>
+      </div>
+
+      <!-- NVIDIA key + model id -->
+      <div class="card stack">
+        <div class="field">
+          <div class="flabel"><span class="kdot" id="nv-key-dot" style="background:var(--faint);"></span>NVIDIA API key</div>
+          <div class="inputwrap">
+            <input type="password" id="nvidia-key-input" placeholder="nvapi-…" autocomplete="off" spellcheck="false">
+            <button class="reveal" data-target="nvidia-key-input">👁</button>
+          </div>
+        </div>
+        <div class="field">
+          <div class="ftext">
+            <div class="flabel">Model id</div>
+            <div class="field-row">
+              <input class="text-input" id="nvidia-model-input" spellcheck="false"
+                     placeholder="meta/llama-3.3-70b-instruct" autocomplete="off">
+            </div>
+            <div class="desc">From build.nvidia.com — e.g.
+              <code>meta/llama-3.3-70b-instruct</code> or
+              <code>nvidia/llama-3.3-nemotron-super-49b-v1.5</code>.</div>
+          </div>
+        </div>
+        <div class="save-row">
+          <button class="primary" id="nvidia-apply">Save NVIDIA</button>
+          <span class="msg" id="nvidia-msg"></span>
+        </div>
+      </div>
+
+      <!-- Private-mode routing -->
+      <div class="card stack">
+        <div class="row">
+          <div class="grow">
+            <div class="name">Run Deep / Text Mode on NVIDIA</div>
+            <div class="desc">Off keeps private modes on your on-device model only.</div>
+          </div>
+          <label class="switch"><input type="checkbox" id="priv-nvidia"><span class="track"></span></label>
+        </div>
+        <div class="warn">
+          <span class="wico">⚠</span>
+          <span>Testing path. With this on, private/explicit conversations leave your
+            machine and go to NVIDIA's cloud, which may refuse them. Turn it off once
+            your local model is running.</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- PERSONALITIES -->
+    <section class="panel" data-panel="personalities">
+      <div class="panel-head">
+        <h2>Personalities</h2>
+        <p>Create, edit, or delete who Violet can be. Switch the active one from the tray.</p>
+      </div>
+
+      <div class="card stack">
+        <div class="row" style="margin-bottom:2px;">
+          <div class="grow"><div class="name">Roster</div></div>
+          <button id="persona-new">+ New</button>
+        </div>
+        <div class="plist" id="persona-list"></div>
+      </div>
+
+      <!-- Editor -->
+      <div class="card stack" id="persona-editor" style="display:none;">
+        <div class="field">
+          <div class="ftext">
+            <div class="flabel">Name</div>
+            <input class="text-input" id="pe-name" maxlength="40" placeholder="e.g. Sarcastic">
+          </div>
+        </div>
+
+        <div class="field-row">
+          <div class="field"><div class="ftext">
+            <div class="flabel">Voice</div>
+            <select id="pe-voice"></select>
+          </div></div>
+          <div class="field"><div class="ftext">
+            <div class="flabel">Default emotion</div>
+            <select id="pe-emotion"></select>
+          </div></div>
+        </div>
+
+        <div class="field">
+          <div class="ftext">
+            <div class="flabel">Personality prompt</div>
+            <textarea id="pe-prompt" spellcheck="false"
+              placeholder="Describe who she is — tone, attitude, how she talks to you. The shared response rules (no emojis, short replies, emotion/animation tags) are added automatically."></textarea>
+          </div>
+        </div>
+
+        <div class="save-row">
+          <button class="primary" id="pe-save">Save</button>
+          <button class="danger" id="pe-delete">Delete</button>
+          <span class="msg" id="pe-msg"></span>
         </div>
       </div>
     </section>
@@ -474,7 +683,10 @@
       document.querySelector(`.panel[data-panel="${nav.dataset.tab}"]`).classList.add('active');
       // The avatar may finish loading after Settings opens, so re-pull the
       // tuning snapshot each time the Avatar tab is shown.
-      if (nav.dataset.tab === 'avatar') refreshTuning();
+      if (nav.dataset.tab === 'avatar')        refreshTuning();
+      // Backend-backed panels: fetch fresh state each time they're opened.
+      if (nav.dataset.tab === 'model')         loadBrain();
+      if (nav.dataset.tab === 'personalities') loadPersonas();
     });
   });
 
@@ -714,6 +926,210 @@
     const msg = $('tune-msg');
     msg.className = 'msg ok'; msg.textContent = 'Saved.';
     setTimeout(() => { msg.textContent = ''; }, 2000);
+  });
+
+  /* ── AI Model (backend brain) ── */
+  const brainRadios = document.querySelectorAll('input[name="brain"]');
+
+  function paintBrain(cfg) {
+    if (!cfg) return;
+    const P = cfg.providers || {};
+    const local = P.local || {}, nvidia = P.nvidia || {}, openai = P.openai || {};
+
+    brainRadios.forEach((r) => {
+      r.checked = r.value === cfg.provider;
+      document.querySelector(`.provider[data-brain="${r.value}"]`)
+        .classList.toggle('selected', r.checked);
+    });
+
+    $('b-local-model').textContent  = local.model || 'on-device';
+    $('b-nvidia-model').textContent = nvidia.configured ? (nvidia.model || '—') : 'not configured';
+    $('b-openai-model').textContent = openai.model || 'gpt-4o-mini';
+
+    setTag('b-local-tag',  local.configured,  local.reachable ? 'LIVE' : 'OFFLINE', !!local.reachable);
+    setTag('b-nvidia-tag', nvidia.configured, nvidia.configured ? 'READY' : 'NO KEY', false);
+    setTag('b-openai-tag', openai.configured, openai.configured ? 'READY' : 'NO KEY', false);
+
+    // Can't select a cloud provider with no key — disable + dim it.
+    setBrainEnabled('nvidia', !!nvidia.configured);
+    setBrainEnabled('openai', !!openai.configured);
+    setBrainEnabled('local',  !!local.configured);
+
+    $('brain-active').textContent = cfg.active_provider || '—';
+    $('brain-active-dot').className = 'dot ' + (cfg.active_provider ? 'on' : 'off');
+
+    const nvInput = $('nvidia-model-input');
+    if (document.activeElement !== nvInput) nvInput.value = nvidia.model || '';
+
+    // The key is never sent back from the backend — just reflect whether one
+    // is saved. A saved key shows a masked placeholder; typing replaces it.
+    $('nv-key-dot').style.background = nvidia.key_set ? 'var(--green)' : 'var(--faint)';
+    const keyInput = $('nvidia-key-input');
+    keyInput.placeholder = nvidia.key_set ? '•••••••••••• (saved)' : 'nvapi-…';
+
+    const priv = $('priv-nvidia');
+    priv.checked = cfg.private_provider === 'nvidia';
+    priv.disabled = !nvidia.configured;
+  }
+
+  function setTag(id, configured, text, live) {
+    const t = $(id);
+    t.textContent = configured ? text : '—';
+    t.className = 'ptag ' + (live ? 'live' : 'na');
+  }
+  function setBrainEnabled(value, on) {
+    const card = document.querySelector(`.provider[data-brain="${value}"]`);
+    card.classList.toggle('off', !on);
+    card.querySelector('input').disabled = !on;
+  }
+
+  async function loadBrain() {
+    const res = await S.llmGet();
+    if (res && res.ok) paintBrain(res.config);
+  }
+
+  brainRadios.forEach((r) => r.addEventListener('change', async () => {
+    if (!r.checked) return;
+    const res = await S.llmSet({ provider: r.value });
+    if (res && res.config) paintBrain(res.config);
+  }));
+
+  $('nvidia-apply').addEventListener('click', async () => {
+    const btn = $('nvidia-apply'); const msg = $('nvidia-msg');
+    const patch = {};
+    const model = $('nvidia-model-input').value.trim();
+    const key   = $('nvidia-key-input').value.trim();
+    if (model) patch.nvidia_model = model;
+    if (key)   patch.nvidia_key = key;   // empty leaves an existing key intact
+    if (!Object.keys(patch).length) return;
+    btn.disabled = true; msg.className = 'msg'; msg.textContent = 'Saving…';
+    const res = await S.llmSet(patch);
+    btn.disabled = false;
+    if (res && res.config) {
+      $('nvidia-key-input').value = '';
+      paintBrain(res.config);
+      msg.className = 'msg ok'; msg.textContent = 'Saved.';
+      setTimeout(() => { if (msg.classList.contains('ok')) msg.textContent = ''; }, 2000);
+    } else {
+      msg.className = 'msg err'; msg.textContent = 'Save failed — backend unreachable.';
+    }
+  });
+
+  $('priv-nvidia').addEventListener('change', async (e) => {
+    const res = await S.llmSet({ private_provider: e.target.checked ? 'nvidia' : 'local' });
+    if (res && res.config) paintBrain(res.config);
+  });
+
+  /* ── Personalities ── */
+  let _personas = [];
+  let _selectedPersona = null;     // id being edited, or null for a new one
+  let _optionsLoaded = false;
+
+  function fillSelect(sel, values, current) {
+    sel.innerHTML = '';
+    values.forEach((v) => {
+      const o = document.createElement('option');
+      o.value = v; o.textContent = v;
+      if (v === current) o.selected = true;
+      sel.appendChild(o);
+    });
+  }
+
+  function renderPersonaList(active) {
+    const root = $('persona-list');
+    root.innerHTML = '';
+    _personas.forEach((p) => {
+      const row = el('div', 'pitem' + (p.id === _selectedPersona ? ' sel' : ''));
+      row.appendChild(el('span', 'pi-name', p.name));
+      if (p.id === active) row.appendChild(el('span', 'badge active', 'ACTIVE'));
+      if (p.builtin)       row.appendChild(el('span', 'badge builtin', 'BUILT-IN'));
+      row.addEventListener('click', () => selectPersona(p.id));
+      root.appendChild(row);
+    });
+  }
+
+  function selectPersona(id) {
+    const p = _personas.find((x) => x.id === id);
+    if (!p) return;
+    _selectedPersona = id;
+    $('pe-name').value    = p.name;
+    $('pe-prompt').value  = p.prompt || '';
+    fillSelect($('pe-voice'),   _voices,   p.voice || _voices[0]);
+    fillSelect($('pe-emotion'), _emotions, p.default_emotion || 'relaxed');
+    $('pe-delete').disabled = !p.deletable;
+    $('pe-delete').textContent = p.builtin ? 'Revert' : 'Delete';
+    $('pe-msg').textContent = '';
+    $('persona-editor').style.display = '';
+    renderPersonaList(_activePersona);
+  }
+
+  function newPersona() {
+    _selectedPersona = null;
+    $('pe-name').value = '';
+    $('pe-prompt').value = '';
+    fillSelect($('pe-voice'),   _voices,   _voices[0]);
+    fillSelect($('pe-emotion'), _emotions, 'relaxed');
+    $('pe-delete').disabled = true;
+    $('pe-delete').textContent = 'Delete';
+    $('pe-msg').textContent = '';
+    $('persona-editor').style.display = '';
+    renderPersonaList(_activePersona);
+    $('pe-name').focus();
+  }
+
+  let _voices = [], _emotions = [], _activePersona = null;
+
+  async function loadPersonas() {
+    const res = await S.personasGet();
+    if (!res || !res.ok) { $('persona-list').innerHTML =
+      '<div class="status-text">Backend unreachable — start it to manage personalities.</div>'; return; }
+    _personas = res.personalities || [];
+    _activePersona = res.active;
+    _voices   = (res.options && res.options.voices)   || [];
+    _emotions = (res.options && res.options.emotions) || [];
+    _optionsLoaded = true;
+    renderPersonaList(_activePersona);
+  }
+
+  $('persona-new').addEventListener('click', () => { if (_optionsLoaded) newPersona(); });
+
+  $('pe-save').addEventListener('click', async () => {
+    const name = $('pe-name').value.trim();
+    const prompt = $('pe-prompt').value.trim();
+    const msg = $('pe-msg');
+    if (!name || !prompt) { msg.className = 'msg err'; msg.textContent = 'Name and prompt are required.'; return; }
+    $('pe-save').disabled = true; msg.className = 'msg'; msg.textContent = 'Saving…';
+    const res = await S.personaSave({
+      id: _selectedPersona || undefined,
+      name, prompt,
+      voice: $('pe-voice').value,
+      default_emotion: $('pe-emotion').value,
+    });
+    $('pe-save').disabled = false;
+    if (res && res.ok) {
+      msg.className = 'msg ok'; msg.textContent = 'Saved.';
+      const savedId = res.personality && res.personality.id;
+      await loadPersonas();
+      if (savedId) selectPersona(savedId);
+      setTimeout(() => { if (msg.classList.contains('ok')) msg.textContent = ''; }, 2000);
+    } else {
+      msg.className = 'msg err'; msg.textContent = (res && res.error) || 'Save failed.';
+    }
+  });
+
+  $('pe-delete').addEventListener('click', async () => {
+    if (!_selectedPersona) return;
+    const msg = $('pe-msg');
+    $('pe-delete').disabled = true;
+    const res = await S.personaDelete(_selectedPersona);
+    if (res && res.ok) {
+      _selectedPersona = null;
+      $('persona-editor').style.display = 'none';
+      await loadPersonas();
+    } else {
+      $('pe-delete').disabled = false;
+      msg.className = 'msg err'; msg.textContent = (res && res.message) || 'Delete failed.';
+    }
   });
 
   /* ── System ── */

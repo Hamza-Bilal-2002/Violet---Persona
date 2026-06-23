@@ -153,6 +153,70 @@ ipcMain.handle('settings:save-offline', (_e, patch = {}) => {
   return { ok: true };
 });
 
+// ─── AI Model (backend brain switch) ──────────────────────────────────────────
+//
+// Distinct from Offline Mode above: that's the CLIENT-side fallback used when
+// the backend is unreachable. This drives the BACKEND's active brain (local
+// Ollama / NVIDIA / OpenAI) over the api's REST endpoints.
+
+ipcMain.handle('settings:llm-get', async () => {
+  try {
+    const res = await fetch(`${API_BASE}/llm/config`);
+    return { ok: true, config: await res.json() };
+  } catch (err) {
+    return { ok: false, error: (err && err.message) || String(err) };
+  }
+});
+
+ipcMain.handle('settings:llm-set', async (_e, patch = {}) => {
+  try {
+    const res = await fetch(`${API_BASE}/llm/config`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    return await res.json();
+  } catch (err) {
+    return { ok: false, error: (err && err.message) || String(err) };
+  }
+});
+
+// ─── Personalities (create / edit / delete) ───────────────────────────────────
+
+ipcMain.handle('settings:personas-get', async () => {
+  try {
+    const res = await fetch(`${API_BASE}/personalities/full`);
+    return { ok: true, ...(await res.json()) };
+  } catch (err) {
+    return { ok: false, error: (err && err.message) || String(err) };
+  }
+});
+
+ipcMain.handle('settings:persona-save', async (_e, persona = {}) => {
+  try {
+    const res = await fetch(`${API_BASE}/personalities`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(persona),
+    });
+    return await res.json();
+  } catch (err) {
+    return { ok: false, error: (err && err.message) || String(err) };
+  }
+});
+
+ipcMain.handle('settings:persona-delete', async (_e, id) => {
+  try {
+    const res = await fetch(
+      `${API_BASE}/personalities/${encodeURIComponent(id)}`,
+      { method: 'DELETE' },
+    );
+    return await res.json();
+  } catch (err) {
+    return { ok: false, error: (err && err.message) || String(err) };
+  }
+});
+
 // ─── System ───────────────────────────────────────────────────────────────────
 
 ipcMain.handle('settings:pin-taskbar', () => {

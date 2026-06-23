@@ -6,6 +6,48 @@ this is what we actually did. Pairs with the memory index (MEMORY.md).
 
 ---
 
+## 2026-06-23 — NVIDIA cloud brain + persona editor in Settings
+
+- **Third brain — NVIDIA NIM**: added a cloud-hosted, OpenAI-compatible
+  provider (`integrate.api.nvidia.com/v1`) alongside local Ollama + OpenAI.
+  Default model `meta/llama-3.3-70b-instruct` (recommended over Nemotron
+  49B for terse, tool-disciplined replies). `llm.py` now resolves
+  `provider ∈ {auto,local,nvidia,openai}` per turn; **auto never picks
+  NVIDIA** (explicit/paid choice only). Brain selection + NVIDIA key/model
+  are runtime-settable and persisted to `/data/llm_runtime.json` (overrides
+  env on next start). New `LLMClient` methods: `set_provider`,
+  `set_private_provider`, `set_nvidia_model`, `set_nvidia_key`,
+  `private_available`/`private_provider`, `runtime_config`.
+- **Private-mode routing (posture change)**: deep/text were hard-locked to
+  the on-device model. Now a `private_provider` setting (default `local`)
+  can be flipped to `nvidia` as an **opt-in testing path** so Hamza can
+  test Deep/Text Mode before Ollama is set up. `_run_once` require_local
+  branch + all main.py gates use `private_available()`/`private_provider()`.
+  Default still local-only; the override is a clearly-warned Settings toggle
+  (NVIDIA is cloud + will likely refuse explicit content). See
+  [[adult-mode]], [[local-model-fallback]], [[nvidia-brain]].
+- **Personality editor**: personalities are now create/edit/deletable from
+  Settings. `personalities.py` got a writable `/data/personalities` overlay
+  (loads over the read-only baked set by id; user file overrides a baked one,
+  deleting an override reverts, pure-builtin can't be deleted). REST:
+  `GET /personalities/full`, `POST /personalities`, `DELETE /personalities/{id}`.
+- **Live re-sync infra**: `main.py` now keeps a `_LIVE` connection registry
+  ({ws,session,conn}); a personality edit broadcasts the refreshed roster +
+  re-applies the active prompt to non-private live sessions, and a
+  private-provider change pushes refreshed deep/text capability frames — all
+  without a reconnect.
+- **Settings UI**: two new sidebar sections — **AI Model** (brain radios with
+  live/ready tags, NVIDIA key+model editor, "currently answering" readout,
+  warned Deep/Text-on-NVIDIA toggle) and **Personalities** (roster list with
+  active/built-in badges + editor: name, voice/emotion selects, prompt
+  textarea, Save / Delete-or-Revert). Backend-backed via new settingsWindow
+  IPC + preload bridges. Note: AI Model = backend brain (Tier-1); distinct
+  from Offline Mode = client fallback when the backend is down.
+- Verified: backend compiles; personality CRUD unit-tested (create/override/
+  revert/refuse/validation); electron JS + settings inline script parse.
+
+---
+
 ## 2026-06-20 — PC bring-up + Settings overhaul + native avatar tuning
 
 - **Local model live on PC**: backend Dockerized stack runs; Ollama

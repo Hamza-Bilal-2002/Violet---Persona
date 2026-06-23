@@ -65,6 +65,18 @@ class Settings(BaseSettings):
     LOCAL_LLM_URL: str = "http://ollama:11434/v1"
     LOCAL_LLM_MODEL: str = "llama3"
 
+    # ── NVIDIA NIM (cloud-hosted, OpenAI-compatible) ─────────────────
+    #
+    # A third "brain" option alongside the local model and OpenAI. NVIDIA
+    # exposes its hosted models (Llama 3.3 70B, Nemotron, etc.) through an
+    # OpenAI-compatible endpoint, so it's just the openai SDK pointed at a
+    # different base_url + an nvapi-… key. Useful as a far stronger Tier-1
+    # than a CPU-bound local model. Selected at runtime from Settings;
+    # never used automatically (auto still prefers local → OpenAI).
+    NVIDIA_API_KEY: str = ""
+    NVIDIA_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
+    NVIDIA_MODEL: str = "meta/llama-3.3-70b-instruct"
+
     # What the api is allowed to do when GPT (not the local model) is
     # answering. 'full' keeps tools + RAG + memory (used for testing
     # now). 'basic' strips them so the cloud provider never touches
