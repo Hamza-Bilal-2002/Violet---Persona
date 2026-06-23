@@ -59,6 +59,7 @@ export class BackendClient {
     onAdultMode,
     onTextMode,
     onChatMessage,
+    onNotice,
     fallbackChat,
     onModeChange,
   }) {
@@ -116,6 +117,11 @@ export class BackendClient {
     // user's own messages locally). Optional.
     this.onChatMessage =
       onChatMessage || null;
+
+    // onNotice({ icon, title, detail }): an avatar-action toast (memory
+    // saved, reminder set, …). Passive HUD feedback, never spoken. Optional.
+    this.onNotice =
+      onNotice || null;
 
     // True while text mode is active — replies are shown in the chatbox
     // and played muted (animate/emote, no audio) instead of spoken.
@@ -765,6 +771,18 @@ export class BackendClient {
 
       if (this.onTextMode) {
         this.onTextMode(msg);
+      }
+
+      return;
+
+    }
+
+    if (msg.type === 'notice') {
+
+      // Avatar-action toast (memory saved, reminder set, …). Passive HUD;
+      // not enqueued to the dialogue manager — she doesn't speak it.
+      if (this.onNotice) {
+        this.onNotice(msg);
       }
 
       return;

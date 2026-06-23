@@ -6,6 +6,25 @@ this is what we actually did. Pairs with the memory index (MEMORY.md).
 
 ---
 
+## 2026-06-23 (later still ×2) — Action notifier + text-mode opacity
+
+- **Action notifier**: Violet's behind-the-scenes actions now surface as a
+  subtle, achievement-style toast near the avatar. Backend emits a `notice`
+  frame (`_notice`/`_send_notice` in main.py) on memory save, reminder/event
+  scheduled, event cancelled, memory forgotten; auto-extraction broadcasts
+  "Violet will remember this" when it stores new facts. New
+  `client/frontend/js/ui/actionNotifier.js` (bottom-right, dark-glass + amber,
+  icon badge with a one-shot spark bloom, whisper-thin auto-dismiss timer,
+  stacks newest-lowest, pointer-events:none). Deliberately a separate surface
+  from `modeNotifier` (top-center warnings). Wired via `BackendClient.onNotice`
+  → `AvatarRuntime.actionNotifier`. SVG glyphs (memory/reminder/event/forget),
+  reduced-motion respected.
+- **Text-mode chatbox** background opacity raised 0.62 → 0.88 (more readable
+  over busy desktops).
+- Verified: backend compiles, Vite build passes, JS parses.
+
+---
+
 ## 2026-06-23 (later still) — Time awareness + proactive event memory
 
 - **Device time → the time-blind local model**: the renderer sends

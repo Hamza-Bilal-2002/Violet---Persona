@@ -137,6 +137,20 @@ async def _broadcast(frame: dict) -> None:
             pass
 
 
+def _notice(icon: str, title: str, detail: str = "") -> dict:
+    """A lightweight 'avatar action' frame the renderer shows as a subtle,
+    achievement-style toast (memory saved, reminder set, …). Distinct from
+    dialogue: it's HUD feedback, never spoken."""
+    return {"type": "notice", "icon": icon, "title": title, "detail": detail}
+
+
+async def _send_notice(ws, icon: str, title: str, detail: str = "") -> None:
+    try:
+        await ws.send_text(json.dumps(_notice(icon, title, detail)))
+    except Exception:
+        pass
+
+
 # ── Time awareness + proactive event follow-ups ──────────────────────────────
 #
 # The local LLM has no clock; we inject the real current date/time (from the
@@ -923,7 +937,7 @@ async def _run_dialogue_turn(
             # action the client executes.
             if fc["name"] in SERVER_SIDE_TOOLS:
                 payload = await _execute_server_tool(
-                    fc["name"], fc["args"], conn or {}
+                    fc["name"], fc["args"], conn or {}, websocket
                 )
                 results.append((fc["name"], payload))
                 continue
@@ -1229,11 +1243,12 @@ async def _switch_personality(
     logger.info(f"personality switched -> {p['id']}")
 
 
-async def _execute_server_tool(name: str, args: dict, conn: dict) -> dict:
+async def _execute_server_tool(name: str, args: dict, conn: dict, ws=None) -> dict:
     """Run a server-side tool (long-term memory or time-aware events) and
     return a payload shaped like _await_tool_result ({result}/{error}) so it
     feeds back into the model identically to client-side tools. `conn` carries
-    the per-connection timezone used to resolve/format event times."""
+    the per-connection timezone; `ws` is the client to surface an action
+    notice toast on."""
     args = args or {}
     tz_name = conn.get("tz") or events_store.get_tz()
     try:
@@ -1250,11 +1265,20 @@ async def _execute_server_tool(name: str, args: dict, conn: dict) -> dict:
                 when_utc,
                 kind=args.get("kind", "event"),
             )
+            when_local = ev.fmt_local(row["when_utc"], tz_name)
+            if ws is not None:
+                is_reminder = row["kind"] == "reminder"
+                await _send_notice(
+                    ws,
+                    "reminder" if is_reminder else "event",
+                    "Reminder set" if is_reminder else "Added to your schedule",
+                    f"{row['title']} · {when_local}",
+                )
             return {"result": {
                 "scheduled": True,
                 "title": row["title"],
                 "kind": row["kind"],
-                "when": ev.fmt_local(row["when_utc"], tz_name),
+                "when": when_local,
                 "in": ev.humanize_delta(row["when_utc"]),
             }}
 
@@ -1283,6 +1307,8 @@ async def _execute_server_tool(name: str, args: dict, conn: dict) -> dict:
                 return {"result": {"cancelled": False,
                                    "reason": "no matching event found"}}
             events_store.cancel(match["id"])
+            if ws is not None:
+                await _send_notice(ws, "forget", "Removed", match["title"])
             return {"result": {"cancelled": True, "title": match["title"]}}
 
         # ── long-term memory ─────────────────────────────────────────
@@ -1295,6 +1321,10 @@ async def _execute_server_tool(name: str, args: dict, conn: dict) -> dict:
             )
             if row is None:
                 return {"error": "nothing to remember (empty content)"}
+            if ws is not None:
+                await _send_notice(
+                    ws, "memory", "Violet will remember this", row["content"]
+                )
             return {"result": {
                 "saved": True,
                 "content": row["content"],
@@ -1323,6 +1353,8 @@ async def _execute_server_tool(name: str, args: dict, conn: dict) -> dict:
                 }}
             top = hits[0]
             memory_store.delete(top["id"])
+            if ws is not None:
+                await _send_notice(ws, "forget", "Forgotten", top["content"])
             return {"result": {"forgotten": True, "content": top["content"]}}
 
         return {"error": f"unknown server tool: {name}"}
@@ -1345,15 +1377,23 @@ async def _extract_and_store(user_text: str, assistant_text: str) -> None:
             assistant_text,
             settings.user_name,
         )
+        added = []
         for f in facts:
-            await memory_store.add(
+            row = await memory_store.add(
                 f["content"],
                 mem_type=f.get("type", "user"),
                 importance=float(f.get("importance", 0.5)),
                 source="auto",
             )
-        if facts:
-            logger.info(f"memory: auto-extracted {len(facts)} fact(s)")
+            if row is not None:  # add() returns None on empty/duplicate
+                added.append(row["content"])
+        if added:
+            n = len(added)
+            logger.info(f"memory: auto-extracted {n} fact(s)")
+            # Subtle 'she noticed something' toast. Show the fact when it's a
+            # single one; otherwise a tidy count.
+            detail = added[0] if n == 1 else f"{n} new memories"
+            await _broadcast(_notice("memory", "Violet will remember this", detail))
     except Exception:
         logger.exception("background memory extraction failed")
 

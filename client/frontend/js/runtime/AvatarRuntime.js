@@ -38,6 +38,9 @@ from '../ui/voiceIndicator.js';
 import { mountModeNotifier }
 from '../ui/modeNotifier.js';
 
+import { mountActionNotifier }
+from '../ui/actionNotifier.js';
+
 import { mountChatBox }
 from '../ui/chatBox.js';
 
@@ -569,6 +572,12 @@ export class AvatarRuntime {
     this.modeNotifier =
       mountModeNotifier();
 
+    // Bottom-right, by the avatar: subtle "she did something" toasts
+    // (memory saved, reminder set) — distinct from the top-center mode
+    // notifier, which is for connection/mode warnings.
+    this.actionNotifier =
+      mountActionNotifier();
+
     // Text-mode chatbox. Hidden until text mode turns on. Its callbacks
     // route to the backend client (constructed just below): user sends go
     // out as normal messages, settings saves persist scene/rules, and the
@@ -897,6 +906,16 @@ export class AvatarRuntime {
         // A reply to show in the text-mode chatbox (assistant turns only).
         onChatMessage: (role, text) => {
           this.chatBox.addMessage(role, text);
+        },
+
+        // Avatar-action toast: memory saved, reminder set, event scheduled.
+        // Subtle, achievement-style HUD near the avatar — never spoken.
+        onNotice: (msg) => {
+          this.actionNotifier.notify({
+            icon:   msg.icon,
+            title:  msg.title,
+            detail: msg.detail,
+          });
         },
 
         // Tier-2 fallback: routed to when the backend can't be reached.

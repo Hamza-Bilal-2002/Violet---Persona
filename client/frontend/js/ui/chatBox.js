@@ -60,7 +60,7 @@ export function mountChatBox({ onSend, onSaveSettings, onClose } = {}) {
         z-index: 999998;
         font-family: system-ui, -apple-system, Segoe UI, sans-serif;
         color: rgba(255,255,255,0.92);
-        background: rgba(14,14,18,0.62);
+        background: rgba(14,14,18,0.88);
         border: 1px solid rgba(255,200,60,0.22);
         border-radius: 18px;
         box-shadow: 0 0 0 1px rgba(255,200,60,0.05), 0 18px 50px rgba(0,0,0,0.6);
