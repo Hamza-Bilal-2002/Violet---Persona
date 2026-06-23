@@ -6,6 +6,42 @@ this is what we actually did. Pairs with the memory index (MEMORY.md).
 
 ---
 
+## 2026-06-23 (later still) — Time awareness + proactive event memory
+
+- **Device time → the time-blind local model**: the renderer sends
+  `{type:"client_time", iso, tz}` on WS open (`BackendClient` open handler).
+  `main._time_context()` injects "CURRENT DATE & TIME …" as an ephemeral
+  system line every turn (`ChatSession.set_time_context`, alongside the
+  memory context). No container-TZ dependency — the device tz is the source
+  of truth and is persisted for the scheduler.
+- **Event/reminder store** (`server/api/app/events.py`, `/data/events.db`):
+  events stored as **absolute UTC** so they survive shutdowns (compare to
+  now on next boot; overdue items fire late). `resolve_when()` parses "in a
+  week / 2pm tomorrow / in 20 min" via **dateparser** (added to
+  requirements; lazy-imported) relative to real now + device tz.
+- **Tools** (`schedule_event`, `list_events`, `cancel_event`, server-side in
+  `_execute_server_tool`, renamed from `_execute_memory_tool`, now takes
+  `conn` for tz). The model is told to call `schedule_event` whenever a
+  future plan/meeting/date is mentioned.
+- **Proactive follow-ups**: a background scheduler (`_scheduler_loop`, 30s,
+  started on `startup`) checks `events.due()` and voices, to a live
+  non-private client, the right stage per event — heads-up the day before,
+  reminder the day of (with relative time), and "how did it go?" once past
+  (`AFTER_BUFFER` 2h). Lines are **LLM-generated in character**
+  (`_gen_proactive_sync`) with a template fallback, pushed as normal `reply`
+  frames (the renderer already speaks unsolicited replies).
+- **First-boot-of-day briefing**: on the first connect of the local day
+  (`_maybe_briefing`, tracked via persisted `last_briefing_date`), she greets
+  + runs through upcoming events; same-day reconnects stay silent. Suppresses
+  the day-of reminder for events the briefing already named (the after
+  follow-up still fires).
+- Verified: backend compiles, event store + due-stages + briefing meta
+  unit-tested (incl. overdue catch-up), Vite build passes. dateparser +
+  proactive speech need the live stack / image rebuild to exercise.
+  See [[event-memory]].
+
+---
+
 ## 2026-06-23 (later) — More voices + global voice override
 
 - **More Piper voices**: TTS Dockerfile now bakes 12 voices (was 4) — extra

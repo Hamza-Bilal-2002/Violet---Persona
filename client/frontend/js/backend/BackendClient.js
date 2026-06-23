@@ -227,6 +227,20 @@ export class BackendClient {
 
         this._setStatus('connected');
 
+        // Tell the backend the device's real clock + timezone. The local
+        // model is time-blind and the api container runs on UTC, so this is
+        // Violet's source of "now" — it powers event scheduling, reminders,
+        // and the first-boot-of-day briefing.
+        try {
+          this.ws.send(JSON.stringify({
+            type: 'client_time',
+            iso:  new Date().toISOString(),
+            tz:   Intl.DateTimeFormat().resolvedOptions().timeZone,
+          }));
+        } catch (err) {
+          console.warn('BackendClient: could not send client_time', err);
+        }
+
         // flush anything the user typed
         // while the socket was opening
 

@@ -40,6 +40,12 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
+from datetime import datetime, timezone
+
+try:
+    from zoneinfo import ZoneInfo
+except Exception:  # pragma: no cover
+    ZoneInfo = None  # type: ignore
 
 import httpx
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -63,6 +69,8 @@ from .protocol import parse_reply
 from .store import store as message_store
 from .tools import SERVER_SIDE_TOOLS
 from . import voices as voice_catalog
+from . import events as ev
+from .events import store as events_store
 
 
 # How many prior messages to replay from the SQLite store when a
@@ -127,6 +135,211 @@ async def _broadcast(frame: dict) -> None:
             await entry["ws"].send_text(payload)
         except Exception:
             pass
+
+
+# ── Time awareness + proactive event follow-ups ──────────────────────────────
+#
+# The local LLM has no clock; we inject the real current date/time (from the
+# user's device timezone) into every turn, and a background scheduler brings
+# up reminders / event follow-ups on Violet's own initiative — see events.py.
+
+SCHEDULER_INTERVAL = 30.0  # seconds between due-checks
+
+
+def _local_now(tz_name: str | None) -> datetime:
+    tz = timezone.utc
+    if tz_name and ZoneInfo is not None:
+        try:
+            tz = ZoneInfo(tz_name)
+        except Exception:
+            tz = timezone.utc
+    return datetime.now(timezone.utc).astimezone(tz)
+
+
+def _time_context(tz_name: str | None) -> str:
+    """The 'current date/time' system line injected each turn."""
+    local = _local_now(tz_name)
+    stamp = local.strftime("%A, %d %B %Y, %I:%M %p").replace(" 0", " ")
+    zone = tz_name or "UTC"
+    return (
+        f"CURRENT DATE & TIME: {stamp} ({zone}). This is the real present "
+        f"moment — use it as 'now' for anything time-related. When "
+        f"{settings.user_name} mentions a future plan, meeting, date, or asks "
+        f"to be reminded, call schedule_event."
+    )
+
+
+def _gen_proactive_sync(instruction: str, tz_name: str | None) -> str | None:
+    """Generate one in-character proactive line via the active provider.
+    Sync (offloaded to a thread). Returns raw text (with the usual
+    emotion/animation tag prefix) or None on any failure."""
+    client, model, _name = llm_client.active_provider()
+    if client is None:
+        return None
+    active = personalities.active()
+    system = build_system_prompt(active.get("prompt") if active else None)
+    try:
+        resp = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "system", "content": _time_context(tz_name)},
+                {"role": "user", "content": instruction},
+            ],
+        )
+        return resp.choices[0].message.content or None
+    except Exception as e:
+        logger.warning(f"proactive generation failed: {e}")
+        return None
+
+
+async def _speak_proactive(entry: dict, instruction: str, fallback: str,
+                           tz_name: str | None) -> None:
+    """Voice an unprompted line to one client: generate it in character,
+    fall back to a plain template if the model is unreachable, and push it
+    as a normal reply frame (which the renderer speaks like any other)."""
+    raw = await asyncio.to_thread(_gen_proactive_sync, instruction, tz_name)
+    if raw:
+        frame = parse_reply(raw).to_dict()
+    else:
+        frame = {
+            "type": "reply",
+            "text": fallback,
+            "emotion": {"name": "relaxed", "intensity": 0.4},
+            "animation": "talking",
+        }
+    try:
+        await entry["ws"].send_text(json.dumps(frame))
+    except Exception:
+        logger.exception("failed to push proactive line")
+
+
+def _proactive_copy(event: dict, stage: str, tz_name: str | None) -> tuple[str, str]:
+    """(instruction-for-the-LLM, plain-fallback-text) for one due item."""
+    user = settings.user_name
+    title = event["title"]
+    when = ev.fmt_local(event["when_utc"], tz_name)
+    delta = ev.humanize_delta(event["when_utc"])
+    head = f"[SPEAK TO {user.upper()} UNPROMPTED — they did not just message you]"
+
+    if stage == "reminder":
+        return (
+            f"{head} The reminder you set has come due: \"{title}\". Tell "
+            f"{user} now, in one short line and fully in character.",
+            f"Hey, you asked me to remind you: {title}.",
+        )
+    if stage == "before":
+        return (
+            f"{head} {user} has \"{title}\" tomorrow ({when}). Give a short "
+            f"heads-up in character.",
+            f"Don't forget, you've got {title} tomorrow.",
+        )
+    if stage == "dayof":
+        return (
+            f"{head} {user} has \"{title}\" today — it's {delta} ({when}). "
+            f"Remind them in one or two lines, in character.",
+            f"You've got {title} {delta}. Don't be late.",
+        )
+    # after
+    return (
+        f"{head} {user}'s \"{title}\" was {delta} ({when}). Ask how it went, "
+        f"warmly and in character — show you remembered.",
+        f"So, how was {title}? You never told me.",
+    )
+
+
+async def _run_due_checks() -> None:
+    """One scheduler tick: voice anything that's due to a live, non-private
+    client. With no client connected, items stay pending and fire (possibly
+    late) on the next connect — that's what survives a shutdown."""
+    if not _LIVE:
+        return
+    entry = next((e for e in _LIVE if e["conn"]["mode"] is None), None)
+    if entry is None:
+        return  # someone's mid private scene — don't interrupt
+    tz_name = events_store.get_tz()
+    for item in events_store.due(tz_name):
+        event, stage = item["event"], item["stage"]
+        instruction, fallback = _proactive_copy(event, stage, tz_name)
+        await _speak_proactive(entry, instruction, fallback, tz_name)
+        events_store.mark_stage(event["id"], stage)
+        await asyncio.sleep(0.6)  # space out a burst so she doesn't talk over herself
+
+
+async def _scheduler_loop() -> None:
+    while True:
+        try:
+            await _run_due_checks()
+        except Exception:
+            logger.exception("scheduler tick failed")
+        await asyncio.sleep(SCHEDULER_INTERVAL)
+
+
+async def _maybe_briefing(entry: dict, tz_name: str | None) -> None:
+    """First connect of the local day: greet + run through what's coming up.
+    Same-day reconnects stay silent. Tracks 'turned on today' via a persisted
+    last-briefing date."""
+    today = _local_now(tz_name).date().isoformat()
+    if events_store.get_meta("last_briefing_date") == today:
+        return  # already greeted today
+    events_store.set_meta("last_briefing_date", today)
+
+    upcoming = events_store.upcoming(tz_name)
+    if not upcoming:
+        return  # first boot, but nothing to bring up — stay silent
+
+    lines = "\n".join(
+        f"- {e['title']} ({ev.fmt_local(e['when_utc'], tz_name)}, "
+        f"{ev.humanize_delta(e['when_utc'])})"
+        for e in upcoming
+    )
+    user = settings.user_name
+    instruction = (
+        f"[FIRST TIME {user.upper()} OPENED YOU TODAY] Greet {user} briefly "
+        f"and remind them what's coming up, in character. Two or three "
+        f"sentences max. Their schedule:\n{lines}"
+    )
+    fallback = "Morning. Coming up: " + "; ".join(
+        f"{e['title']} {ev.humanize_delta(e['when_utc'])}" for e in upcoming
+    ) + "."
+    await _speak_proactive(entry, instruction, fallback, tz_name)
+
+    # The briefing already named today's events, so suppress the scheduler's
+    # separate day-of reminder for them (the 'how did it go?' follow-up still
+    # fires later). Anything not today keeps its normal reminders.
+    now = ev._utc_now()
+    today_local = _local_now(tz_name).date()
+    for e in upcoming:
+        when = datetime.fromisoformat(e["when_utc"])
+        if when > now and when.astimezone(_local_now(tz_name).tzinfo).date() == today_local:
+            events_store.mark_stage(e["id"], "dayof")
+
+
+async def _on_client_time(conn: dict, entry: dict, raw: str) -> None:
+    """Handle the device-time frame the renderer sends on connect: record the
+    timezone (per-connection + persisted for the scheduler) and, on the first
+    connect of the day, run the briefing shortly after the avatar settles."""
+    try:
+        obj = json.loads(raw) or {}
+    except Exception:
+        return
+    tz_name = obj.get("tz")
+    if tz_name:
+        conn["tz"] = tz_name
+        events_store.set_tz(tz_name)
+
+    async def _later():
+        await asyncio.sleep(4)  # let the avatar finish loading before she talks
+        if entry in _LIVE and entry["conn"]["mode"] is None:
+            await _maybe_briefing(entry, conn.get("tz"))
+
+    asyncio.create_task(_later())
+
+
+@app.on_event("startup")
+async def _start_scheduler() -> None:
+    asyncio.create_task(_scheduler_loop())
+    logger.info("event scheduler started")
 
 
 @app.get("/")
@@ -490,6 +703,13 @@ async def chat_ws(websocket: WebSocket):
         while True:
             raw = await websocket.receive_text()
 
+            # Control frame: the device clock + timezone, sent by the
+            # renderer on connect. Gives the time-blind local model a real
+            # "now" and drives the first-boot-of-day briefing.
+            if _is_client_time(raw):
+                await _on_client_time(conn, live_entry, raw)
+                continue
+
             # Control frame: personality switch from the tray or the
             # renderer. Handled here, never treated as user dialogue.
             if _is_set_personality(raw):
@@ -548,10 +768,15 @@ async def chat_ws(websocket: WebSocket):
                 logger.exception("memory recall failed — continuing memory-less")
                 session.set_memory_context("")
 
+            # Give the (time-blind) model the real current date/time from the
+            # user's device so it can reason about "now" and schedule events.
+            session.set_time_context(_time_context(conn.get("tz")))
+
             try:
                 final_text, used_tools = await _run_dialogue_turn(
                     websocket, session, user_text,
                     private=(conn["mode"] is not None),
+                    conn=conn,
                 )
             except LocalModelRequiredError:
                 # A private mode + the local model went away mid-scene.
@@ -652,6 +877,7 @@ async def _run_dialogue_turn(
     session,
     user_text: str,
     private: bool = False,
+    conn: dict | None = None,
 ) -> tuple[str, bool]:
     """Drive one user turn through the LLM, handling any tool calls.
 
@@ -696,7 +922,9 @@ async def _run_dialogue_turn(
             # — never forwarded to the renderer. Everything else is a PC
             # action the client executes.
             if fc["name"] in SERVER_SIDE_TOOLS:
-                payload = await _execute_memory_tool(fc["name"], fc["args"])
+                payload = await _execute_server_tool(
+                    fc["name"], fc["args"], conn or {}
+                )
                 results.append((fc["name"], payload))
                 continue
 
@@ -718,6 +946,14 @@ async def _run_dialogue_turn(
         f"hit MAX_TOOL_ROUNDS ({MAX_TOOL_ROUNDS}); returning whatever text we have"
     )
     return response["text"], used_tools
+
+
+def _is_client_time(raw: str) -> bool:
+    try:
+        o = json.loads(raw)
+        return isinstance(o, dict) and o.get("type") == "client_time"
+    except json.JSONDecodeError:
+        return False
 
 
 def _is_set_personality(raw: str) -> bool:
@@ -993,12 +1229,63 @@ async def _switch_personality(
     logger.info(f"personality switched -> {p['id']}")
 
 
-async def _execute_memory_tool(name: str, args: dict) -> dict:
-    """Run a server-side memory tool against the long-term store and
-    return a payload shaped like _await_tool_result ({result}/{error})
-    so it feeds back into the model identically to client-side tools."""
+async def _execute_server_tool(name: str, args: dict, conn: dict) -> dict:
+    """Run a server-side tool (long-term memory or time-aware events) and
+    return a payload shaped like _await_tool_result ({result}/{error}) so it
+    feeds back into the model identically to client-side tools. `conn` carries
+    the per-connection timezone used to resolve/format event times."""
     args = args or {}
+    tz_name = conn.get("tz") or events_store.get_tz()
     try:
+        # ── time-aware events / reminders ────────────────────────────
+        if name == "schedule_event":
+            when_utc = ev.resolve_when(args.get("when", ""), tz_name)
+            if when_utc is None:
+                return {"error": (
+                    "couldn't understand that time — ask the user to say it "
+                    "more concretely (e.g. 'tomorrow at 2pm', 'in 30 minutes')"
+                )}
+            row = events_store.add(
+                args.get("title", ""),
+                when_utc,
+                kind=args.get("kind", "event"),
+            )
+            return {"result": {
+                "scheduled": True,
+                "title": row["title"],
+                "kind": row["kind"],
+                "when": ev.fmt_local(row["when_utc"], tz_name),
+                "in": ev.humanize_delta(row["when_utc"]),
+            }}
+
+        if name == "list_events":
+            items = events_store.list_pending()
+            return {"result": {"events": [
+                {
+                    "title": e["title"],
+                    "kind": e["kind"],
+                    "when": ev.fmt_local(e["when_utc"], tz_name),
+                    "in": ev.humanize_delta(e["when_utc"]),
+                }
+                for e in items
+            ]}}
+
+        if name == "cancel_event":
+            q = (args.get("query", "") or "").lower()
+            terms = [w for w in q.split() if len(w) > 2]
+            match = None
+            for e in events_store.list_pending():
+                t = e["title"].lower()
+                if t in q or any(w in t for w in terms):
+                    match = e
+                    break
+            if not match:
+                return {"result": {"cancelled": False,
+                                   "reason": "no matching event found"}}
+            events_store.cancel(match["id"])
+            return {"result": {"cancelled": True, "title": match["title"]}}
+
+        # ── long-term memory ─────────────────────────────────────────
         if name == "remember":
             row = await memory_store.add(
                 args.get("content", ""),
@@ -1038,10 +1325,10 @@ async def _execute_memory_tool(name: str, args: dict) -> dict:
             memory_store.delete(top["id"])
             return {"result": {"forgotten": True, "content": top["content"]}}
 
-        return {"error": f"unknown memory tool: {name}"}
+        return {"error": f"unknown server tool: {name}"}
 
     except Exception as e:
-        logger.exception(f"memory tool {name} failed")
+        logger.exception(f"server tool {name} failed")
         return {"error": str(e)}
 
 

@@ -581,8 +581,123 @@ RECALL = {
 }
 
 
+# ---- event / reminder tools (executed server-side) -------------------------
+#
+# Time-aware memory: Violet remembers dated things the user mentions and
+# brings them up on her own at the right time (see app/events.py). Like the
+# memory tools, these run inside the api against /data/events.db — never
+# forwarded to the renderer. The current date/time + timezone are injected
+# into every turn, so the model knows "now" when it calls these.
+
+SCHEDULE_EVENT = {
+    "type": "function",
+    "function": {
+        "name": "schedule_event",
+        "description": (
+            "Remember a dated thing the user mentions so you can bring it up "
+            "later on your own. Call this WHENEVER the user refers to "
+            "something happening at a future time — a meeting, appointment, "
+            "date, trip, deadline, plan — or explicitly asks to be reminded.\n\n"
+            "Two kinds:\n"
+            "  'event'    — something to follow up on. You'll give a heads-up "
+            "the day before, a reminder the day of, and ask how it went "
+            "afterwards. Use for meetings, dates, appointments, trips.\n"
+            "  'reminder' — a one-off nudge at a specific time. Use for "
+            "'remind me to X in 20 minutes', 'remind me at 6pm'.\n\n"
+            "Examples:\n"
+            "  'I have a dentist appointment next Tuesday at 3' →\n"
+            "     title='Dentist appointment', when='next Tuesday at 3pm', "
+            "kind='event'\n"
+            "  'I'm going on a date tomorrow night' →\n"
+            "     title='Date', when='tomorrow at 8pm', kind='event'\n"
+            "  'remind me to take the laundry out in 40 minutes' →\n"
+            "     title='Take the laundry out', when='in 40 minutes', "
+            "kind='reminder'\n\n"
+            "Pass `when` as the user's own phrasing of the time — the server "
+            "resolves it against the real current date/time, so you do NOT "
+            "need to compute an absolute date yourself. Still confirm with a "
+            "short in-character reply after the tool succeeds."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": (
+                        "Short label for the thing, e.g. 'Dentist "
+                        "appointment', 'Date with Sara', 'Go shopping'."
+                    ),
+                },
+                "when": {
+                    "type": "string",
+                    "description": (
+                        "The time as the user expressed it: 'tomorrow at "
+                        "2pm', 'in a week', 'next Friday evening', 'in 20 "
+                        "minutes'. Natural language is fine."
+                    ),
+                },
+                "kind": {
+                    "type": "string",
+                    "description": (
+                        "'event' for something to follow up on, 'reminder' "
+                        "for a one-off nudge. Defaults to 'event'."
+                    ),
+                    "enum": ["event", "reminder"],
+                },
+            },
+            "required": ["title", "when"],
+        },
+    },
+}
+
+
+LIST_EVENTS = {
+    "type": "function",
+    "function": {
+        "name": "list_events",
+        "description": (
+            "List the user's upcoming events and reminders. Use when they ask "
+            "'what do I have coming up', 'what's on my schedule', 'do I have "
+            "anything today', or when you need to check before answering a "
+            "time-related question."
+        ),
+        "parameters": {"type": "object", "properties": {}},
+    },
+}
+
+
+CANCEL_EVENT = {
+    "type": "function",
+    "function": {
+        "name": "cancel_event",
+        "description": (
+            "Cancel / forget a scheduled event or reminder the user no longer "
+            "wants tracked (e.g. 'cancel my dentist reminder', 'the meeting "
+            "got called off'). Describe it in natural language; the best "
+            "match among upcoming items is removed."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Which event to cancel, e.g. 'the dentist "
+                        "appointment' or 'shopping tomorrow'."
+                    ),
+                },
+            },
+            "required": ["query"],
+        },
+    },
+}
+
+
 # Tools the api executes itself instead of forwarding to the renderer.
-SERVER_SIDE_TOOLS = {"remember", "forget", "recall"}
+SERVER_SIDE_TOOLS = {
+    "remember", "forget", "recall",
+    "schedule_event", "list_events", "cancel_event",
+}
 
 
 TOOL_DECLARATIONS = [
@@ -600,4 +715,7 @@ TOOL_DECLARATIONS = [
     REMEMBER,
     FORGET,
     RECALL,
+    SCHEDULE_EVENT,
+    LIST_EVENTS,
+    CANCEL_EVENT,
 ]

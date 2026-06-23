@@ -333,6 +333,16 @@ class ChatSession:
         # provider — so explicit content can never leave the local model.
         self._require_local: bool = False
 
+        # Current date/time line, refreshed each turn from the user's device
+        # clock (see main.py). Local models have no idea what "now" is, so we
+        # inject it ephemerally — never stored, like the memory context.
+        self._time_context: str = ""
+
+    def set_time_context(self, text: str) -> None:
+        """Set the 'current date/time' block injected on the next call.
+        Pass "" to inject nothing."""
+        self._time_context = (text or "").strip()
+
     def set_require_local(self, value: bool) -> None:
         """Lock (or unlock) this session to the local model. When locked,
         a turn with no reachable local model is refused, never sent to GPT."""
@@ -410,15 +420,16 @@ class ChatSession:
         message in our history (must, so subsequent tool messages
         reference valid tool_call_ids) and returns parsed shape."""
 
-        # Inject the long-term memory block (if any) as an ephemeral
-        # system message right after the main system prompt. Built fresh
-        # here so it's never stored in self._messages.
+        # Inject ephemeral system context (time + long-term memory) right
+        # after the main system prompt. Built fresh here so neither is ever
+        # stored in self._messages, trimmed, or entangled with tool pairing.
+        extras = []
+        if self._time_context:
+            extras.append({"role": "system", "content": self._time_context})
         if self._memory_context:
-            outgoing = (
-                [self._messages[0]]
-                + [{"role": "system", "content": self._memory_context}]
-                + self._messages[1:]
-            )
+            extras.append({"role": "system", "content": self._memory_context})
+        if extras:
+            outgoing = [self._messages[0]] + extras + self._messages[1:]
         else:
             outgoing = self._messages
 
