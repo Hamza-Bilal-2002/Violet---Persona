@@ -340,6 +340,7 @@
     <div class="nav active" data-tab="behavior"><span class="ico">◐</span>Behavior</div>
     <div class="nav" data-tab="model"><span class="ico">◈</span>AI Model</div>
     <div class="nav" data-tab="personalities"><span class="ico">☻</span>Personalities</div>
+    <div class="nav" data-tab="voice"><span class="ico">♪</span>Voice</div>
     <div class="nav" data-tab="avatar"><span class="ico">◇</span>Avatar</div>
     <div class="nav" data-tab="connectivity"><span class="ico">⇄</span>Connectivity</div>
     <div class="nav" data-tab="memory"><span class="ico">✶</span>Memory</div>
@@ -539,6 +540,29 @@
       </div>
     </section>
 
+    <!-- VOICE -->
+    <section class="panel" data-panel="voice">
+      <div class="panel-head">
+        <h2>Voice</h2>
+        <p>Pick one voice for Violet. It overrides every personality's own voice.</p>
+      </div>
+
+      <div class="card stack">
+        <div class="field">
+          <div class="ftext">
+            <div class="flabel">Voice</div>
+            <select id="voice-select"></select>
+          </div>
+        </div>
+        <div class="readline" id="voice-msg-row">
+          <span id="voice-msg" class="msg"></span>
+        </div>
+        <div class="desc">Choose <b>Each personality's own voice</b> to go back to
+          per-personality voices (set in the Personalities editor). Applies on your
+          next reply — including Deep Mode and offline mode.</div>
+      </div>
+    </section>
+
     <!-- AVATAR -->
     <section class="panel" data-panel="avatar">
       <div class="panel-head">
@@ -687,6 +711,7 @@
       // Backend-backed panels: fetch fresh state each time they're opened.
       if (nav.dataset.tab === 'model')         loadBrain();
       if (nav.dataset.tab === 'personalities') loadPersonas();
+      if (nav.dataset.tab === 'voice')         loadVoice();
     });
   });
 
@@ -1020,20 +1045,58 @@
     if (res && res.config) paintBrain(res.config);
   });
 
+  /* ── Voice (global override) ── */
+  let _voiceOverride = '';   // seeded from S.load(); '' = follow personality
+
+  async function loadVoice() {
+    const sel = $('voice-select');
+    const res = await S.voicesGet();
+    sel.innerHTML = '';
+    const none = document.createElement('option');
+    none.value = ''; none.textContent = "Each personality's own voice";
+    sel.appendChild(none);
+    if (res && res.ok) {
+      (res.voices || []).forEach((v) => {
+        const o = document.createElement('option');
+        o.value = v.id; o.textContent = v.label || v.id;
+        sel.appendChild(o);
+      });
+    } else {
+      $('voice-msg').className = 'msg err';
+      $('voice-msg').textContent = 'Backend unreachable — start it to load voices.';
+    }
+    sel.value = _voiceOverride || '';
+  }
+
+  $('voice-select').addEventListener('change', async (e) => {
+    _voiceOverride = e.target.value;
+    const msg = $('voice-msg');
+    msg.className = 'msg'; msg.textContent = 'Saving…';
+    await S.voiceSet(_voiceOverride);
+    msg.className = 'msg ok';
+    msg.textContent = _voiceOverride ? 'Voice set.' : 'Using each personality’s voice.';
+    setTimeout(() => { if (msg.classList.contains('ok')) msg.textContent = ''; }, 2000);
+  });
+
   /* ── Personalities ── */
   let _personas = [];
   let _selectedPersona = null;     // id being edited, or null for a new one
   let _optionsLoaded = false;
 
-  function fillSelect(sel, values, current) {
+  // Accepts plain strings (emotions) or { id, label } objects (voices).
+  function fillSelect(sel, items, current) {
     sel.innerHTML = '';
-    values.forEach((v) => {
+    (items || []).forEach((it) => {
+      const value = (typeof it === 'string') ? it : it.id;
+      const label = (typeof it === 'string') ? it : (it.label || it.id);
       const o = document.createElement('option');
-      o.value = v; o.textContent = v;
-      if (v === current) o.selected = true;
+      o.value = value; o.textContent = label;
+      if (value === current) o.selected = true;
       sel.appendChild(o);
     });
   }
+  const firstId = (items) => (items && items[0])
+    ? (typeof items[0] === 'string' ? items[0] : items[0].id) : '';
 
   function renderPersonaList(active) {
     const root = $('persona-list');
@@ -1054,7 +1117,7 @@
     _selectedPersona = id;
     $('pe-name').value    = p.name;
     $('pe-prompt').value  = p.prompt || '';
-    fillSelect($('pe-voice'),   _voices,   p.voice || _voices[0]);
+    fillSelect($('pe-voice'),   _voices,   p.voice || firstId(_voices));
     fillSelect($('pe-emotion'), _emotions, p.default_emotion || 'relaxed');
     $('pe-delete').disabled = !p.deletable;
     $('pe-delete').textContent = p.builtin ? 'Revert' : 'Delete';
@@ -1067,7 +1130,7 @@
     _selectedPersona = null;
     $('pe-name').value = '';
     $('pe-prompt').value = '';
-    fillSelect($('pe-voice'),   _voices,   _voices[0]);
+    fillSelect($('pe-voice'),   _voices,   firstId(_voices));
     fillSelect($('pe-emotion'), _emotions, 'relaxed');
     $('pe-delete').disabled = true;
     $('pe-delete').textContent = 'Delete';
@@ -1150,6 +1213,8 @@
     $('openaiKey').value = s.offline.openaiKey || '';
     $('geminiKey').value = s.offline.geminiKey || '';
     paintProviders();
+
+    _voiceOverride = (s.voice && s.voice.override) || '';
   });
 </script>
 </body>

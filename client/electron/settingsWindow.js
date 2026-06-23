@@ -64,6 +64,9 @@ ipcMain.handle('settings:load', () => {
       openaiKey: s.openaiApiKey     || '',
       geminiKey: s.geminiApiKey     || '',
     },
+    voice: {
+      override: s.voiceOverride || '',
+    },
   };
 });
 
@@ -179,6 +182,32 @@ ipcMain.handle('settings:llm-set', async (_e, patch = {}) => {
   } catch (err) {
     return { ok: false, error: (err && err.message) || String(err) };
   }
+});
+
+// ─── Voice (global override) ──────────────────────────────────────────────────
+//
+// The catalog comes from the api (which knows what's installed in the TTS
+// service). The chosen override is persisted client-side in violet-settings
+// and pushed live to the renderer's TtsClient, where it beats every
+// personality's own voice.
+
+ipcMain.handle('settings:voices-get', async () => {
+  try {
+    const res = await fetch(`${API_BASE}/voices`);
+    const data = await res.json();
+    return { ok: true, voices: data.voices || [] };
+  } catch (err) {
+    return { ok: false, error: (err && err.message) || String(err) };
+  }
+});
+
+ipcMain.handle('settings:voice-set', (_e, voice) => {
+  const value = (voice || '').trim();
+  const s = loadSettings() || {};
+  saveSettings({ ...s, voiceOverride: value });
+  const w = getMainWindow();
+  if (w) w.webContents.send('persona:set-voice', value);
+  return { ok: true };
 });
 
 // ─── Personalities (create / edit / delete) ───────────────────────────────────

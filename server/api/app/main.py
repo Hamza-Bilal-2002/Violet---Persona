@@ -41,6 +41,7 @@ import asyncio
 import json
 import uuid
 
+import httpx
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
@@ -61,6 +62,7 @@ from .text_mode import store as text_mode_store
 from .protocol import parse_reply
 from .store import store as message_store
 from .tools import SERVER_SIDE_TOOLS
+from . import voices as voice_catalog
 
 
 # How many prior messages to replay from the SQLite store when a
@@ -261,14 +263,43 @@ async def personalities_list():
     return _personalities_frame()
 
 
+async def _installed_voices() -> list[str] | None:
+    """Ask the TTS service which Piper voices are installed. Returns None
+    if it can't be reached (callers fall back to the full catalog)."""
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as cx:
+            r = await cx.get(f"{settings.TTS_URL}/health")
+        if r.status_code == 200:
+            data = r.json()
+            v = data.get("voices")
+            if isinstance(v, list) and v:
+                return v
+    except Exception:
+        pass
+    return None
+
+
+async def _voice_options() -> list[dict]:
+    """Labelled voice catalog filtered to what's actually installed."""
+    return voice_catalog.catalog(await _installed_voices())
+
+
+@app.get("/voices")
+async def voices_list():
+    """Available TTS voices (labelled) for the Settings voice picker."""
+    return {"voices": await _voice_options()}
+
+
 @app.get("/personalities/full")
 async def personalities_full():
     """Full roster (with prompts + edit flags) + voice/emotion options —
     for the Settings personality editor."""
+    opts = personalities.options()
+    opts["voices"] = await _voice_options()
     return {
         "active": personalities.active_id(),
         "personalities": personalities.list_full(),
-        "options": personalities.options(),
+        "options": opts,
     }
 
 

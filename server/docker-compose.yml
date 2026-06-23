@@ -22,10 +22,10 @@ services:
     env_file:
       - ./api/.env
     environment:
-      # Container-to-container URL for the embedding sibling. Overrides
-      # the localhost default in Settings so the api reaches embed on
-      # the compose network.
+      # Container-to-container URLs for the siblings. Override the
+      # localhost defaults so the api reaches them on the compose network.
       - EMBED_URL=http://embed:8005
+      - TTS_URL=http://tts:8004
     depends_on:
       - embed
     volumes:

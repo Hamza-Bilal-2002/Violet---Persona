@@ -33,6 +33,10 @@ contextBridge.exposeInMainWorld('settingsShell', {
   llmGet: ()       => ipcRenderer.invoke('settings:llm-get'),
   llmSet: (patch)  => ipcRenderer.invoke('settings:llm-set', patch),
 
+  // Voice (global override)
+  voicesGet: ()      => ipcRenderer.invoke('settings:voices-get'),
+  voiceSet:  (voice) => ipcRenderer.invoke('settings:voice-set', voice),
+
   // Personalities (create / edit / delete)
   personasGet:   ()        => ipcRenderer.invoke('settings:personas-get'),
   personaSave:   (persona) => ipcRenderer.invoke('settings:persona-save', persona),

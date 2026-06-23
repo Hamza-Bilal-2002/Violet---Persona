@@ -321,5 +321,17 @@ contextBridge.exposeInMainWorld(
       });
     },
 
+    // ── Voice override ───────────────────────────────────────────────
+    //
+    // Settings -> renderer: the user picked a global voice override (or
+    // cleared it). callback receives the voice id, or '' / null to follow
+    // each personality's own voice. Applied live to TtsClient.
+
+    onSetVoice: (callback) => {
+      ipcRenderer.on('persona:set-voice', (_event, voice) => {
+        callback(voice);
+      });
+    },
+
   }
 );

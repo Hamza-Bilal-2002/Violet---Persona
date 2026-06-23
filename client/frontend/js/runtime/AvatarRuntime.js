@@ -303,6 +303,30 @@ export class AvatarRuntime {
           TTS_SYNTHESIZE_URL,
       });
 
+    // Global voice override (Settings -> Voice): apply the saved value
+    // before the first reply, and keep it in sync with live changes. It
+    // funnels through TtsClient, so it wins over every personality —
+    // backend, deep mode, and the offline fallback alike.
+    if (window.personaShell) {
+      if (typeof window.personaShell.getSettings === 'function') {
+        Promise.resolve(window.personaShell.getSettings())
+          .then((s) => {
+            if (s && s.voiceOverride) {
+              this.ttsClient.setVoiceOverride(s.voiceOverride);
+            }
+          })
+          .catch(() => {});
+      }
+      if (typeof window.personaShell.onSetVoice === 'function') {
+        window.personaShell.onSetVoice((voice) => {
+          if (this.ttsClient &&
+              typeof this.ttsClient.setVoiceOverride === 'function') {
+            this.ttsClient.setVoiceOverride(voice);
+          }
+        });
+      }
+    }
+
     this.dialogueManager =
       new DialogueManager({
 

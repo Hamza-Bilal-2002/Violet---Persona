@@ -91,6 +91,12 @@ class Settings(BaseSettings):
     # with the on-network host (http://embed:8005).
     EMBED_URL: str = "http://localhost:8005"
 
+    # TTS service (server/tts). Used to list which Piper voices are
+    # actually installed so the Settings voice picker only offers real
+    # ones. localhost default for running outside compose; compose
+    # overrides with the on-network host (http://tts:8004).
+    TTS_URL: str = "http://localhost:8004"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

@@ -6,6 +6,32 @@ this is what we actually did. Pairs with the memory index (MEMORY.md).
 
 ---
 
+## 2026-06-23 (later) — More voices + global voice override
+
+- **More Piper voices**: TTS Dockerfile now bakes 12 voices (was 4) — extra
+  US/UK female + a few male. Downloads are best-effort (a renamed upstream
+  path warns + skips instead of failing the build); whatever lands in
+  /models is what the api reports installed.
+- **Voice catalog**: new `server/api/app/voices.py` (id→label/locale/gender).
+  `GET /voices` returns the catalog filtered to what the TTS service
+  actually has installed (api fetches `tts:8004/health` via new
+  `settings.TTS_URL`; compose sets it). Personality editor options now carry
+  the same labelled voice list.
+- **Global voice override** (Settings → **Voice**): one chosen voice that
+  beats every personality's own voice. Implemented at the **client**
+  `TtsClient` chokepoint (`override` wins over `personalityVoice`), NOT in
+  the backend — so it also covers Deep Mode and the offline/basic fallback,
+  which never hit the api. Persisted in `violet-settings.json`
+  (`voiceOverride`), applied on renderer startup (`getSettings`) and live via
+  a new `persona:set-voice` IPC + `personaShell.onSetVoice`. "Each
+  personality's own voice" clears it. See [[voice-override]].
+- Settings wiring: `settings:voices-get` / `settings:voice-set` (persists +
+  forwards to renderer) + preload bridges; `fillSelect` generalised to take
+  labelled `{id,label}` voices or plain emotion strings.
+- Verified: backend compiles, Vite build passes (49 modules), all JS parses.
+
+---
+
 ## 2026-06-23 — NVIDIA cloud brain + persona editor in Settings
 
 - **Third brain — NVIDIA NIM**: added a cloud-hosted, OpenAI-compatible
