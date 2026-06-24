@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import uuid
 from datetime import datetime, timezone
 
@@ -159,6 +160,13 @@ async def _send_notice(ws, icon: str, title: str, detail: str = "") -> None:
 
 SCHEDULER_INTERVAL = 30.0  # seconds between due-checks
 
+# How long Hamza has to be away before Violet reacts to it on his return.
+# A short step-away shouldn't trigger it; a few hours (or PC-off overnight)
+# should. Tunable via env for testing.
+ABSENCE_THRESHOLD_SECONDS = int(
+    os.environ.get("PERSONA_ABSENCE_THRESHOLD_SECONDS", str(2 * 3600))
+)
+
 
 def _local_now(tz_name: str | None) -> datetime:
     tz = timezone.utc
@@ -180,6 +188,35 @@ def _time_context(tz_name: str | None) -> str:
         f"moment — use it as 'now' for anything time-related. When "
         f"{settings.user_name} mentions a future plan, meeting, date, or asks "
         f"to be reminded, call schedule_event."
+    )
+
+
+def _humanize_gap(seconds: float) -> str:
+    """A loose 'about 3 hours' / 'almost 2 days' for an absence length."""
+    if seconds < 90 * 60:
+        n, unit = round(seconds / 60), "minute"
+    elif seconds < 36 * 3600:
+        n, unit = round(seconds / 3600), "hour"
+    else:
+        n, unit = round(seconds / 86400), "day"
+    n = max(n, 1)
+    return f"{n} {unit}{'' if n == 1 else 's'}"
+
+
+def _absence_note(seconds: float) -> str:
+    """One-shot instruction telling Violet that Hamza just came back after
+    being away this long. She acknowledges the gap in character, then answers
+    his actual message — exactly as the personality would (missed him, sulky
+    that he ignored her, relieved he's back…)."""
+    user = settings.user_name
+    dur = _humanize_gap(seconds)
+    return (
+        f"[{user.upper()} JUST CAME BACK — he was away for about {dur} (PC off "
+        f"or not talking to you). Before you answer his message, react in "
+        f"character to him being gone that long — the way YOUR personality "
+        f"would (missed him, annoyed he ignored you, glad he's back, etc.) — "
+        f"in one short line, then answer what he actually asked. Don't overdo "
+        f"it; a sentence or two total of acknowledgement.]"
     )
 
 
@@ -828,6 +865,29 @@ async def chat_ws(websocket: WebSocket):
             # Give the (time-blind) model the real current date/time from the
             # user's device so it can reason about "now" and schedule events.
             session.set_time_context(_time_context(conn.get("tz")))
+
+            # Absence awareness: measure the gap since Hamza last actually
+            # talked to her (persisted, so PC-off and idle-while-running both
+            # count). Over the threshold → tell her to acknowledge it on this
+            # one reply. Then stamp "now" as the new last-seen so the very next
+            # message doesn't re-trigger. Skipped in private modes (an in-scene
+            # line shouldn't be derailed by a meta "where were you").
+            try:
+                _now_utc = ev._utc_now()
+                if conn["mode"] is None:
+                    _last = events_store.get_last_seen()
+                    _gap = (_now_utc - _last).total_seconds() if _last else 0
+                    if _gap >= ABSENCE_THRESHOLD_SECONDS:
+                        session.set_absence_context(_absence_note(_gap))
+                        logger.info(f"absence: {_humanize_gap(_gap)} away — acknowledging")
+                    else:
+                        session.set_absence_context("")
+                else:
+                    session.set_absence_context("")
+                events_store.set_last_seen(_now_utc)
+            except Exception:
+                logger.exception("absence check failed — continuing")
+                session.set_absence_context("")
 
             try:
                 final_text, used_tools = await _run_dialogue_turn(

@@ -191,6 +191,24 @@ class EventStore:
         if tz_name:
             self.set_meta("tz", tz_name)
 
+    # ── presence (when Hamza was last actually interacting) ──────────
+
+    def get_last_seen(self) -> datetime | None:
+        """The last time the user actually talked to Violet, as an aware UTC
+        datetime — or None if she's never heard from him. Persisted, so it
+        survives a shutdown and lets the next session measure the gap."""
+        raw = self.get_meta("last_seen_utc")
+        if not raw:
+            return None
+        try:
+            return datetime.fromisoformat(raw)
+        except Exception:
+            return None
+
+    def set_last_seen(self, now_utc: datetime) -> None:
+        self.set_meta("last_seen_utc",
+                      now_utc.astimezone(timezone.utc).isoformat())
+
     # ── CRUD ─────────────────────────────────────────────────────────
 
     def add(self, title: str, when_utc: datetime, kind: str = "event",

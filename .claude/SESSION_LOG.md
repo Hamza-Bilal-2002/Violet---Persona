@@ -6,6 +6,26 @@ this is what we actually did. Pairs with the memory index (MEMORY.md).
 
 ---
 
+## 2026-06-24 (later) — Absence awareness
+
+- Violet now reacts when Hamza comes back after a long gap (PC off, or just
+  idle/not talking to her). On the first message back she acknowledges the
+  absence in character — scaled to her personality — *then* answers the actual
+  question. Folded into the reply, not a separate spoken line.
+- **How:** `EventStore` persists `last_seen_utc` (meta kv). Each real dialogue
+  turn computes `now - last_seen`; if ≥ `ABSENCE_THRESHOLD_SECONDS` (default
+  2h, env-tunable `PERSONA_ABSENCE_THRESHOLD_SECONDS`), `main._absence_note()`
+  injects a one-shot instruction via the new `ChatSession.set_absence_context()`
+  (ephemeral system line, same pattern as time/memory context), then stamps
+  `last_seen = now` so the next message doesn't re-trigger. Because last_seen is
+  only written on real user turns (not on connect), a PC-off gap survives the
+  shutdown and the idle-while-running gap is caught the same way.
+- Skipped in deep/text private modes (an in-scene line shouldn't be derailed by
+  a meta "where were you"). Backend-only; the reply is spoken normally.
+- Verified: backend compiles + parses.
+
+---
+
 ## 2026-06-24 — Schedule pane in Memory window + auto-clear spent tasks
 
 - **Scheduled tab** added to the Memory window (`memoryView.html`): a

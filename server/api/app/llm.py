@@ -338,10 +338,21 @@ class ChatSession:
         # inject it ephemerally — never stored, like the memory context.
         self._time_context: str = ""
 
+        # One-shot "you've been away" note. main.py sets this on the first
+        # turn after Hamza returns from a long absence (PC off, or just idle);
+        # it tells Violet to acknowledge the gap in character before answering.
+        # Cleared after the turn it fires on, like the others.
+        self._absence_context: str = ""
+
     def set_time_context(self, text: str) -> None:
         """Set the 'current date/time' block injected on the next call.
         Pass "" to inject nothing."""
         self._time_context = (text or "").strip()
+
+    def set_absence_context(self, text: str) -> None:
+        """Set the 'user just came back after being away' instruction for the
+        next call. Pass "" to inject nothing."""
+        self._absence_context = (text or "").strip()
 
     def set_require_local(self, value: bool) -> None:
         """Lock (or unlock) this session to the local model. When locked,
@@ -428,6 +439,8 @@ class ChatSession:
             extras.append({"role": "system", "content": self._time_context})
         if self._memory_context:
             extras.append({"role": "system", "content": self._memory_context})
+        if self._absence_context:
+            extras.append({"role": "system", "content": self._absence_context})
         if extras:
             outgoing = [self._messages[0]] + extras + self._messages[1:]
         else:
