@@ -276,7 +276,17 @@ async def _run_due_checks() -> None:
         event, stage = item["event"], item["stage"]
         instruction, fallback = _proactive_copy(event, stage, tz_name)
         await _speak_proactive(entry, instruction, fallback, tz_name)
-        events_store.mark_stage(event["id"], stage)
+        # Terminal stages — a one-shot reminder that's now fired, or the
+        # "how did it go?" follow-up after an event — leave nothing to do, so
+        # she clears the task off the schedule once she's spoken about it.
+        # Intermediate heads-ups (before / day-of) only flip their flag.
+        if stage in ("reminder", "after"):
+            events_store.delete(event["id"])
+            await _broadcast(_notice(
+                "forget", "Cleared from your schedule", event["title"]
+            ))
+        else:
+            events_store.mark_stage(event["id"], stage)
         await asyncio.sleep(0.6)  # space out a burst so she doesn't talk over herself
 
 
@@ -462,6 +472,39 @@ async def memory_reset():
     """Wipe all long-term memory. The resettable-memory control."""
     removed = memory_store.reset()
     return {"ok": True, "removed": removed}
+
+
+# ── Scheduled tasks (events + reminders) ─────────────────────────────────────
+
+def _public_event(e: dict, tz_name: str | None) -> dict:
+    """Shape one stored event for the schedule UI — local wall-clock string,
+    a rough countdown, and the raw UTC instant for client-side sorting."""
+    return {
+        "id": e["id"],
+        "title": e["title"],
+        "kind": e["kind"],
+        "when": ev.fmt_local(e["when_utc"], tz_name),
+        "when_utc": e["when_utc"],
+        "in": ev.humanize_delta(e["when_utc"]),
+    }
+
+
+@app.get("/events")
+async def events_list():
+    """Everything Violet currently has on the books — for the schedule pane in
+    the memory window. Only live (pending) items; spent ones are deleted."""
+    tz_name = events_store.get_tz()
+    return {
+        "events": [
+            _public_event(e, tz_name) for e in events_store.list_pending()
+        ],
+    }
+
+
+@app.delete("/events/{event_id}")
+async def events_delete(event_id: int):
+    """Manually drop a scheduled task from the management UI."""
+    return {"ok": events_store.delete(event_id)}
 
 
 # ── Personalities ────────────────────────────────────────────────────────────

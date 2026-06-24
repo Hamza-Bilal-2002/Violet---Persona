@@ -61,12 +61,13 @@ export function mountActionNotifier() {
     style.textContent = `
       #${ROOT_ID} {
         position: fixed;
-        right: 26px;
-        bottom: 104px;
+        right: 22px;
+        bottom: 14px;            /* the overlay is sized to the work area, so
+                                    this sits just above the taskbar — Steam-style */
         display: flex;
         flex-direction: column-reverse;  /* newest sits lowest, older rise */
         align-items: flex-end;
-        gap: 10px;
+        gap: 8px;
         z-index: 999000;
         pointer-events: none;
         font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -75,13 +76,13 @@ export function mountActionNotifier() {
         position: relative;
         display: flex;
         align-items: center;
-        gap: 11px;
-        min-width: 192px;
+        gap: 10px;
+        min-width: 188px;
         max-width: 320px;
-        padding: 11px 15px 11px 12px;
+        padding: 7px 13px 7px 9px;
         background: rgba(20,20,25,0.78);
         border: 1px solid rgba(255,200,60,0.18);
-        border-radius: 14px;
+        border-radius: 12px;
         box-shadow:
           0 0 0 1px rgba(255,200,60,0.04),
           0 14px 38px rgba(0,0,0,0.5);
@@ -105,15 +106,15 @@ export function mountActionNotifier() {
       #${ROOT_ID} .act-badge {
         position: relative;
         flex-shrink: 0;
-        width: 30px; height: 30px;
+        width: 26px; height: 26px;
         display: flex; align-items: center; justify-content: center;
-        border-radius: 9px;
+        border-radius: 8px;
         color: #ffc83c;
         background:
           linear-gradient(155deg, rgba(255,200,60,0.22), rgba(255,200,60,0.07));
         box-shadow: inset 0 0 0 1px rgba(255,200,60,0.22);
       }
-      #${ROOT_ID} .act-badge svg { width: 16px; height: 16px; display: block; }
+      #${ROOT_ID} .act-badge svg { width: 14px; height: 14px; display: block; }
       #${ROOT_ID} .act.in .act-badge {
         animation: persona-badge-pop 0.5s cubic-bezier(0.16,1,0.3,1) both;
       }
@@ -121,7 +122,7 @@ export function mountActionNotifier() {
       #${ROOT_ID} .act-badge::after {
         content: '';
         position: absolute; inset: 0;
-        border-radius: 9px;
+        border-radius: 8px;
         box-shadow: 0 0 0 0 rgba(255,200,60,0.45);
         opacity: 0;
       }
@@ -129,17 +130,17 @@ export function mountActionNotifier() {
         animation: persona-badge-spark 0.72s ease-out 0.04s both;
       }
 
-      #${ROOT_ID} .act-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+      #${ROOT_ID} .act-text { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
       #${ROOT_ID} .act-title {
-        font-size: 12.5px; font-weight: 600; letter-spacing: 0.01em;
+        font-size: 12px; font-weight: 600; letter-spacing: 0.01em;
         color: rgba(255,255,255,0.94);
         white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
       }
       #${ROOT_ID} .act-detail {
-        font-size: 11px; line-height: 1.3;
+        font-size: 10.5px; line-height: 1.25;
         color: rgba(255,255,255,0.5);
-        display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-        overflow: hidden;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        max-width: 260px;
       }
 
       /* whisper-thin auto-dismiss timer along the bottom edge */

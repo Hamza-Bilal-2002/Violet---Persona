@@ -64,6 +64,53 @@
   }
   .x:hover { background: rgba(255,80,80,0.18); color: #ff8080; }
 
+  /* Tabs — Memories / Scheduled */
+  .tabs {
+    display: flex;
+    gap: 2px;
+    padding: 0 14px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .tab {
+    -webkit-app-region: no-drag;
+    position: relative;
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    padding: 9px 4px 10px;
+    margin-right: 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--text); }
+  .tab.active::after {
+    content: '';
+    position: absolute;
+    left: 0; right: 0; bottom: -1px;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--amber);
+  }
+  .tab .tcount {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--faint);
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0 6px;
+    min-width: 16px;
+    text-align: center;
+  }
+  .tab.active .tcount { color: var(--muted); }
+
   /* Search */
   .toolbar {
     padding: 10px 14px;
@@ -179,6 +226,38 @@
   }
   .del:hover { color: #ff8080; background: rgba(255,80,80,0.14); }
 
+  /* Scheduled-task rows */
+  .ev-title {
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--text);
+    word-break: break-word;
+  }
+  .ev-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 5px;
+  }
+  .kind {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    border-radius: 5px;
+    padding: 2px 6px;
+  }
+  .kind.event    { color: var(--feedback); background: rgba(90,169,255,0.13); }
+  .kind.reminder { color: var(--amber);    background: rgba(255,200,60,0.13); }
+  .ev-when {
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .ev-when .in {
+    color: var(--faint);
+    margin-left: 6px;
+  }
+
   /* Footer */
   .footer {
     display: flex;
@@ -218,7 +297,16 @@
     <div class="x" id="close" title="Close">✕</div>
   </div>
 
-  <div class="toolbar">
+  <div class="tabs">
+    <button class="tab active" id="tabMem" data-tab="memories">
+      Memories <span class="tcount" id="cMem"></span>
+    </button>
+    <button class="tab" id="tabSched" data-tab="scheduled">
+      Scheduled <span class="tcount" id="cSched"></span>
+    </button>
+  </div>
+
+  <div class="toolbar" id="toolbar">
     <input class="search" id="search" type="text"
            placeholder="Search memories…  (semantic)">
   </div>
@@ -242,8 +330,15 @@
   const countEl  = document.getElementById('count');
   const searchEl = document.getElementById('search');
   const savedEl  = document.getElementById('saved');
+  const toolbarEl = document.getElementById('toolbar');
+  const resetEl   = document.getElementById('reset');
+  const cMemEl    = document.getElementById('cMem');
+  const cSchedEl  = document.getElementById('cSched');
+  const tabMem    = document.getElementById('tabMem');
+  const tabSched  = document.getElementById('tabSched');
 
   let searchTimer = null;
+  let mode = 'memories';  // 'memories' | 'scheduled'
 
   function flashSaved() {
     savedEl.classList.add('show');
@@ -261,9 +356,10 @@
   }
 
   function render(memories) {
-    countEl.textContent = memories.length
+    cMemEl.textContent = memories.length || '';
+    countEl.textContent = mode !== 'memories' ? '' : (memories.length
       ? `${memories.length} ${memories.length === 1 ? 'memory' : 'memories'}`
-      : '';
+      : '');
 
     if (!memories.length) {
       listEl.innerHTML =
@@ -357,6 +453,93 @@
     render((data && data.memories) || []);
   }
 
+  // ── Scheduled tasks ──────────────────────────────────────────────
+
+  function renderEvents(events) {
+    cSchedEl.textContent = events.length || '';
+    if (mode === 'scheduled') {
+      countEl.textContent = events.length
+        ? `${events.length} ${events.length === 1 ? 'task' : 'tasks'}`
+        : '';
+    }
+
+    if (!events.length) {
+      listEl.innerHTML =
+        '<div class="empty">Nothing scheduled.<br>' +
+        'Tell Violet about a meeting or ask her to remind you — ' +
+        'it shows up here.</div>';
+      return;
+    }
+
+    listEl.innerHTML = '';
+    for (const e of events) {
+      const item = document.createElement('div');
+      item.className = 'item';
+
+      const rail = document.createElement('div');
+      rail.className = 'rail';
+      rail.style.background = e.kind === 'reminder'
+        ? 'var(--amber)' : 'var(--feedback)';
+
+      const body = document.createElement('div');
+      body.className = 'body';
+
+      const title = document.createElement('div');
+      title.className = 'ev-title';
+      title.textContent = e.title;
+
+      const meta = document.createElement('div');
+      meta.className = 'ev-meta';
+
+      const kind = document.createElement('span');
+      kind.className = `kind ${e.kind === 'reminder' ? 'reminder' : 'event'}`;
+      kind.textContent = e.kind === 'reminder' ? 'Reminder' : 'Event';
+
+      const when = document.createElement('span');
+      when.className = 'ev-when';
+      when.innerHTML = `${e.when}<span class="in">${e.in || ''}</span>`;
+
+      meta.appendChild(kind);
+      meta.appendChild(when);
+      body.appendChild(title);
+      body.appendChild(meta);
+
+      const del = document.createElement('div');
+      del.className = 'del';
+      del.textContent = '🗑';
+      del.title = 'Remove from schedule';
+      del.addEventListener('click', async () => {
+        await window.memoryApi.cancelEvent(e.id);
+        item.remove();
+        loadEvents(); // refresh count
+      });
+
+      item.appendChild(rail);
+      item.appendChild(body);
+      item.appendChild(del);
+      listEl.appendChild(item);
+    }
+  }
+
+  async function loadEvents() {
+    const data = await window.memoryApi.events();
+    renderEvents((data && data.events) || []);
+  }
+
+  function setMode(next) {
+    mode = next;
+    const sched = mode === 'scheduled';
+    tabMem.classList.toggle('active', !sched);
+    tabSched.classList.toggle('active', sched);
+    toolbarEl.style.display = sched ? 'none' : '';
+    resetEl.style.display   = sched ? 'none' : '';
+    searchEl.value = '';
+    if (sched) loadEvents(); else load();
+  }
+
+  tabMem.addEventListener('click', () => setMode('memories'));
+  tabSched.addEventListener('click', () => setMode('scheduled'));
+
   async function doSearch(q) {
     if (!q.trim()) { load(); return; }
     const data = await window.memoryApi.search(q);
@@ -370,8 +553,14 @@
 
   document.getElementById('refresh').addEventListener('click', () => {
     searchEl.value = '';
-    load();
+    if (mode === 'scheduled') loadEvents(); else load();
   });
+
+  // Prime the Scheduled badge count on open without leaving the memories pane.
+  async function primeSchedCount() {
+    const data = await window.memoryApi.events();
+    cSchedEl.textContent = ((data && data.events) || []).length || '';
+  }
 
   document.getElementById('reset').addEventListener('click', async () => {
     if (!confirm('Erase ALL of Violet\'s memories? This cannot be undone.')) return;
@@ -385,6 +574,7 @@
   });
 
   load();
+  primeSchedCount();
 </script>
 </body>
 </html>

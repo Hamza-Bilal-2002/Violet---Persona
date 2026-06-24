@@ -12,4 +12,8 @@ contextBridge.exposeInMainWorld('memoryApi', {
   add:    (body)       => ipcRenderer.invoke('memory:add', body),
   reset:  ()           => ipcRenderer.invoke('memory:reset'),
   close:  ()           => ipcRenderer.send('memory:close'),
+
+  // Scheduled tasks (events + reminders).
+  events:       ()     => ipcRenderer.invoke('events:list'),
+  cancelEvent:  (id)   => ipcRenderer.invoke('events:cancel', id),
 });

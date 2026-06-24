@@ -56,6 +56,13 @@ ipcMain.handle('memory:reset', () =>
   _api('/memory/reset', { method: 'POST' })
 );
 
+// Scheduled tasks (events + reminders) — same window, separate pane.
+ipcMain.handle('events:list', () => _api('/events'));
+
+ipcMain.handle('events:cancel', (_e, id) =>
+  _api(`/events/${id}`, { method: 'DELETE' })
+);
+
 ipcMain.on('memory:close', () => {
   if (_win && !_win.isDestroyed()) _win.close();
 });

@@ -6,6 +6,31 @@ this is what we actually did. Pairs with the memory index (MEMORY.md).
 
 ---
 
+## 2026-06-24 — Schedule pane in Memory window + auto-clear spent tasks
+
+- **Scheduled tab** added to the Memory window (`memoryView.html`): a
+  Memories / Scheduled toggle. The Scheduled pane lists everything Violet has
+  on the books — title, Event/Reminder badge, local time + countdown — with a
+  per-row remove button. Search/Reset are memory-only (hidden on the schedule
+  tab); tab badges show live counts. IPC `events:list`/`events:cancel` in
+  `memoryWindow.js`, exposed as `memoryApi.events`/`cancelEvent` in
+  `memoryPreload.js`.
+- **Backend**: new `GET /events` + `DELETE /events/{id}` (`_public_event`
+  serializer with local when-string + countdown). `EventStore.delete()`
+  hard-removes a row.
+- **Auto-clear after speaking**: the scheduler now *deletes* a task once it
+  voices its terminal line — a fired one-shot reminder, or the "how did it go?"
+  follow-up after an event — instead of leaving a `done` tombstone. Intermediate
+  heads-ups (day-before / day-of) still only flip their flag. Each auto-clear
+  also broadcasts a "Cleared from your schedule" notice toast. This is the
+  "ask, then delete" behaviour Hamza wanted.
+- **Notifier**: shorter cards (tighter padding, 26px badge, single-line detail)
+  and moved to `bottom: 14px` — the overlay is sized to the work area, so it now
+  sits just above the taskbar like a Steam achievement (was 104px, too high).
+- Verified: backend compiles, Vite build passes (50 modules), JS parses.
+
+---
+
 ## 2026-06-23 (later still ×2) — Action notifier + text-mode opacity
 
 - **Action notifier**: Violet's behind-the-scenes actions now surface as a

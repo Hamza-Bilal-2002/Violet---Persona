@@ -232,6 +232,18 @@ class EventStore:
             self._db.commit()
         return cur.rowcount > 0
 
+    def delete(self, event_id: int) -> bool:
+        """Hard-remove a row. Used once a task is spent — after Violet has
+        voiced its terminal line (a fired reminder, or the 'how did it go?'
+        follow-up). Cancelling keeps a tombstone; deleting clears it for good
+        so the schedule list reflects only what's still live."""
+        with self._lock:
+            cur = self._db.execute(
+                "DELETE FROM events WHERE id = ?", (event_id,)
+            )
+            self._db.commit()
+        return cur.rowcount > 0
+
     def _set_flag(self, event_id: int, field: str, *, done: bool = False) -> None:
         assert field in ("reminded", "ask_before", "ask_dayof", "ask_after")
         with self._lock:
