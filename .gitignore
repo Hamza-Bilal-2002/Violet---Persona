@@ -25,6 +25,10 @@ build/
 .vite/
 **/.vite/
 
+# electron-builder packaged installers / portable exe
+dist-app/
+**/dist-app/
+
 # ============================================================
 # Secrets and environment
 # ============================================================

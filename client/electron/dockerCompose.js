@@ -15,13 +15,39 @@
 
 const { spawn } = require('child_process');
 const path = require('path');
+const fs = require('fs');
+const { app } = require('electron');
 
-// client/electron/ -> repo root is two up, the compose stack lives in
-// server/ alongside the client/ tree.
+// Where the docker-compose.yml lives. In a dev checkout the compose
+// stack sits in server/ two levels up from client/electron/. In a
+// PACKAGED build there is no server/ tree beside the app (the .exe
+// ships the overlay client only — the backend is a separate Docker
+// install), so that relative guess would point at a path that doesn't
+// exist. PERSONA_SERVER_DIR lets the user point the shell at wherever
+// they keep the compose stack; otherwise we fall back to the dev path.
 const PROJECT_ROOT =
+  process.env.PERSONA_SERVER_DIR ||
   path.resolve(__dirname, '..', '..', 'server');
 
 function startBackendContainers() {
+
+  // Don't fire `docker compose up` against a cwd that has no compose
+  // file — that just spawns a guaranteed-failure process and logs
+  // noise. Common in a packaged install with no co-located server/.
+  // The renderer's clients reconnect on their own, so skipping here
+  // simply means the user brings the backend up themselves.
+  const hasCompose =
+    fs.existsSync(path.join(PROJECT_ROOT, 'docker-compose.yml')) ||
+    fs.existsSync(path.join(PROJECT_ROOT, 'compose.yaml'));
+
+  if (!hasCompose) {
+    console.warn(
+      `[shell] no compose file at ${PROJECT_ROOT} — skipping backend ` +
+      `auto-start. ${app.isPackaged ? 'Set PERSONA_SERVER_DIR to your ' +
+      'server/ folder, or start the backend manually.' : ''}`
+    );
+    return;
+  }
 
   console.log(
     `[shell] starting backend stack: docker compose up -d ` +
