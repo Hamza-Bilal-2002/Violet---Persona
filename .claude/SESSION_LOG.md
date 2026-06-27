@@ -6,6 +6,23 @@ this is what we actually did. Pairs with the memory index (MEMORY.md).
 
 ---
 
+## 2026-06-27 (later) — Finalized for now: full README + pushed to origin
+
+- Hamza is wrapping the project up at this state (may or may not revisit). Two
+  closing tasks done:
+- **Rewrote the root `README.md`** from scratch — the old one was frontend-only
+  and listed memory/RAG/Ollama/Whisper/Kokoro/multi-agent as "planned" when
+  they're built. New one documents the true scope, big-things-first: PC tools
+  (whatsapp/spotify/volume/brightness/lock/sleep/media/apps/urls), RAG memory +
+  proactive reminders + absence awareness, personalities + Deep/Text modes, the
+  3-brain LLM routing (local Ollama / OpenAI / NVIDIA NIM) with auto-fallback,
+  the voice pipeline (openWakeWord→Whisper→Piper + lip sync), the VRM avatar,
+  Settings, the Dockerized microservice backend + compose network, and the .exe.
+  Every claim verified against code before writing.
+- **Pushed everything to origin/main** (`Hamza-Bilal-2002/Persona`) — was 10
+  commits ahead; now synced through `635dd43`. Also committed a trailing-newline
+  fix in text_mode.json.
+
 ## 2026-06-27 — Package the overlay client as a distributable Electron app
 
 - The shell was already a full Electron app but had **never been packaged** —
