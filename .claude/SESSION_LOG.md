@@ -6,6 +6,40 @@ this is what we actually did. Pairs with the memory index (MEMORY.md).
 
 ---
 
+## 2026-06-27 — Package the overlay client as a distributable Electron app
+
+- The shell was already a full Electron app but had **never been packaged** —
+  always ran in dev mode (`IS_DEV` true whenever `!app.isPackaged`), so the
+  production code paths were untested and two were broken for a `file://` load.
+- **Renderer prod-fixes:** vite `base: "./"` (built index.html used absolute
+  `/assets/...` URLs → 404 over file://); moved `models/` + `animations/` into
+  `frontend/public/` so vite copies them into `dist/` (the renderer loads them
+  via relative `./models` / `./animations`, which dev served from root but the
+  build never copied). Rebuilt — dist now has relative URLs + both asset dirs.
+- **electron-builder** added to `client/electron` (NSIS installer + portable
+  exe, x64, output `client/dist-app/`). `frontend/dist` shipped as
+  `extraResources` → `resources/frontend/dist`, which is exactly where the
+  existing `__dirname/../frontend/dist` resolves inside `app.asar` — zero path
+  change. `asarUnpack` whatsapp-web.js/puppeteer so Chrome can spawn. Scripts:
+  `build:frontend`, `dist`, `dist:dir`.
+- **App icon:** `scripts/make-app-icon.js` draws a 256x256 violet disc PNG
+  procedurally (zlib, no deps), wired to postinstall (tray PNG was 32px, too
+  small for the .ico).
+- **dockerCompose.js:** packaged installs have no co-located `server/`, so
+  auto-start now skips cleanly when no compose file is found and honors
+  `PERSONA_SERVER_DIR`. Backend stays Dockerized + separate; the .exe is the
+  client only, still talks to localhost:8000.
+- **winCodeSign gotcha:** electron-builder's winCodeSign bundle has macOS
+  symlinks that need the Windows symlink privilege to extract → fails on a
+  stock machine. Worked around here by pre-extracting the cached `.7z` without
+  the `darwin` dir into `…Cache/winCodeSign/winCodeSign-2.6.0/`. Permanent fix
+  for a clean machine = enable Developer Mode (or build elevated). Documented
+  in the electron README.
+- **Built successfully:** `Violet Setup 0.1.0.exe` + `Violet-0.1.0-portable.exe`
+  (~114 MB each, unsigned). Verified packaged layout (resources/frontend/dist
+  with models+animations, asarUnpack'd puppeteer/whatsapp). **On-screen launch
+  verification still pending — Hamza to run the exe.** Commit `cdfe892`.
+
 ## 2026-06-24 (later) — Absence awareness
 
 - Violet now reacts when Hamza comes back after a long gap (PC off, or just
